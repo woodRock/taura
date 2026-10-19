@@ -1,0 +1,108 @@
+"""The TUI, driven headless with Textual's pilot."""
+
+from __future__ import annotations
+
+import asyncio
+
+import pytest
+from test_e2e import MAIN_TEX, commit_all, run, set_result, setup_ledger
+
+pytest.importorskip("textual")
+
+from textual.widgets import DataTable, Static, TabbedContent  # noqa: E402
+
+from taura.discovery import discover  # noqa: E402
+from taura.tui import PaperScreen, PapersScreen, TauraApp, open_in_editor  # noqa: E402
+
+
+def published(env, capsys):
+    code, paper = env
+    run(capsys, "-C", str(code), "init")
+    setup_ledger(code)
+    assert run(capsys, "-C", str(code), "publish")[0] == 0
+    return code, paper
+
+
+def drive(app, steps):
+    async def go():
+        async with app.run_test(size=(160, 45)) as pilot:
+            await pilot.pause()
+            return await steps(app, pilot)
+    return asyncio.run(go())
+
+
+def detail(app) -> str:
+    return str(app.screen.query_one("#detail", Static).content)
+
+
+def test_paper_screen_tabs_and_trace(env, capsys):
+    code, paper = published(env, capsys)
+    set_result(code, "mba", f1=0.917)  # one stale claim
+
+    async def steps(app, pilot):
+        assert isinstance(app.screen, PaperScreen)
+        claims = app.screen.query_one("#claims", DataTable)
+        assert claims.row_count == 3
+        assert "\\res{mba/f1/mean} prints 0.912  [stale, code now gives 0.917]" in detail(app)
+        await pilot.press("down")
+        assert "\\res{mba/f1/std}" in detail(app)
+
+        app.screen.query_one(TabbedContent).active = "tab-artifacts"
+        await pilot.pause()
+        assert app.screen.query_one("#artifacts", DataTable).row_count == 3
+        assert "artifact fig_alignment (figure)" in detail(app)
+
+        app.screen.query_one(TabbedContent).active = "tab-findings"
+        await pilot.pause()
+        assert "stale-artifact" in detail(app)
+
+        app.screen.query_one(TabbedContent).active = "tab-claims"
+        await pilot.pause()
+        await pilot.press("slash", *"std", "enter")
+        await pilot.pause()
+        assert claims.row_count == 1 and "mba/f1/std" in detail(app)
+        await pilot.press("escape")  # clears the filter
+        await pilot.pause()
+        assert claims.row_count == 3
+        await pilot.press("escape")  # back to the list of papers
+        await pilot.pause()
+        assert isinstance(app.screen, PapersScreen)
+        assert app.screen.query_one("#papers", DataTable).row_count == 1
+        await pilot.press("enter")
+        await pilot.pause()
+        assert isinstance(app.screen, PaperScreen)
+
+    drive(TauraApp(discover(code)), steps)
+
+
+def test_typed_numbers_tab(env, capsys):
+    code, paper = published(env, capsys)
+    (paper / "main.tex").write_text(MAIN_TEX.replace("%EXTRA%", "Baseline reaches 0.871."))
+    commit_all(paper, "typed")
+
+    async def steps(app, pilot):
+        app.screen.query_one(TabbedContent).active = "tab-typed"
+        await pilot.pause()
+        assert app.screen.query_one("#typed", DataTable).row_count == 1
+        assert "typed 0.871  → matches" in detail(app)
+
+    drive(TauraApp(discover(code)), steps)
+
+
+def test_papers_screen_without_a_repo(env, capsys):
+    published(env, capsys)
+
+    async def steps(app, pilot):
+        assert isinstance(app.screen, PapersScreen)
+        assert app.screen.query_one("#papers", DataTable).row_count == 1
+
+    drive(TauraApp(None), steps)
+
+
+def test_open_in_editor(monkeypatch, tmp_path):
+    f = tmp_path / "main.tex"
+    monkeypatch.setenv("EDITOR", "nvim")
+    monkeypatch.delenv("VISUAL", raising=False)
+    assert open_in_editor(f, 12) == ["nvim", "+12", str(f)]
+    monkeypatch.setenv("VISUAL", "code --wait")
+    assert open_in_editor(f, 12) == ["code", "--wait", "-g", f"{f}:12"]

@@ -90,6 +90,24 @@ def trace(p: Project, target: str) -> dict:
 # ---- text ---------------------------------------------------------------------------
 
 
+def readable(value: str | None) -> str | None:
+    """A macro value as a reader sees it: 4{,}396 -> 4,396, 2\\times10^{-3} -> 2×10^-3, $-$0.4 -> -0.4."""
+    if value is None:
+        return None
+    value = value.replace("{,}", ",").replace("$-$", "-")
+    return re.sub(r"\\times\s*10\^\{?(-?\d+)\}?", r"×10^\1", value)
+
+
+def around(text: str, needle: str, width: int = 150) -> str:
+    """The part of a (long) source line around needle."""
+    i = text.find(needle)
+    if i < 0 or len(text) <= width:
+        return text[:width]
+    lo = max(0, i - (width - len(needle)) // 2)
+    hi = min(len(text), lo + width)
+    return ("…" if lo else "") + text[lo:hi] + ("…" if hi < len(text) else "")
+
+
 def _short(h: str | None) -> str:
     return (h or "")[:19] + ("…" if h and len(h) > 19 else "")
 
@@ -133,10 +151,11 @@ def render(t: dict) -> str:
         if it["kind"] == "claim":
             where = it["location"] or "(not used in the paper)"
             now = "" if it["current"] in (None, it["printed"]) else f", code now gives {it['current']}"
-            out.append(f"  {where}  \\res{{{it['key']}}} prints {it['printed'] or '??' + it['key'] + '??'}"
+            out.append(f"  {where}  \\res{{{it['key']}}} prints {readable(it['printed']) or '??' + it['key'] + '??'}"
                        f"  [{it['status']}{now}]")
             if it["text"]:
-                out.append(f"    {it['text'][:160]}")
+                needle = "\\res{" + it["key"] + "}"
+                out.append("    " + around(it["text"], needle))
             out += _result_lines(it["result"], "    ")
             if it["artifact"]:
                 out.append(f"    via      artifact {it['artifact']['name']} → {it['artifact']['output']}")

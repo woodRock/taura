@@ -14,6 +14,7 @@ experiment tracker.
 
 ```sh
 pip install -e .          # or: pipx install -e .
+pip install -e '.[tui]'   # with the TUI (Textual)
 ```
 
 Python ≥ 3.10, no runtime dependencies (`tomli` on 3.10 only).
@@ -38,7 +39,30 @@ taura publish               # copy to <paper>/generated/, update taura.lock, com
 taura check                 # verify the chain; exit 1 on any finding
 taura status
 taura adopt                 # typed numbers in the paper and the \res keys they match (report only)
+taura trace TARGET          # walk a claim back: a \res key, main.tex:142, or an artifact
+taura papers                # every paired code and paper repo under the roots
+taura tui                   # browse papers, claims and their provenance (read-only)
 ```
+
+## Tracing claims
+
+`taura trace` walks from the paper to what produced it. A target is a `\res` key
+(`mba/f1/mean`), a place in the paper (`main.tex:142`, everything on that line),
+or an artifact name. For each claim it shows:
+- what the paper prints and what the code's results give now;
+- the result file and its hash, and whether it changed since the last publish;
+- the source the result was exported from, with its hash and the commits and
+  environment it was computed at;
+- the run records (phase 2);
+- the artifact that publishes it, and the publish commit.
+
+`--json` gives the same as data.
+
+`taura tui` shows this as a browser. The papers screen lists every pair. Each
+paper has tabs for Claims, Artifacts, Typed numbers and Findings, with the trace
+of the highlighted row on the right. Keys: `enter` open, `e` open the line in
+`$EDITOR`, `/` filter, `r` reload, `escape` back, `q` quit. Started inside a repo,
+it opens that paper.
 
 In the paper's preamble:
 
@@ -169,9 +193,10 @@ original provenance header.
 
 ## Not yet
 
-Run provenance is phase 2: `taura run`, `taura record`, run records,
-`missing-run`/`missing-commit`/`dirty-run`, `trace`, and the gpu-spooler and
-alignbench integrations.
+Run provenance is phase C: `taura run`, `taura record`, run records,
+`missing-run`/`missing-commit`/`dirty-run`, a "result older than its code" check,
+data versioning, and the gpu-spooler and alignbench integrations. After that,
+traces end at runs, and the TUI gains a "changed since publish" view and actions.
 
 ## Tests
 
