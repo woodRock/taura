@@ -10,11 +10,14 @@ from pathlib import Path
 
 from . import NAME, __version__, claims, decisions
 from . import lock as lockmod
+from . import trace as tracemod
 from .build import build
 from .checks import run_checks
 from .discovery import Pair, discover
 from .errors import Refusal, TauraError
 from .ledger import Ledger
+from .model import Project
+from .papers import all_pairs
 from .publish import diff, publish
 from .scaffold import init
 
@@ -224,6 +227,38 @@ def cmd_resolve(args) -> int:
     return 0
 
 
+def cmd_trace(args) -> int:
+    t = tracemod.trace(Project(_pair(args)), args.target)
+    _emit(args, t, tracemod.render(t))
+    return 0
+
+
+def cmd_papers(args) -> int:
+    rows = [Project(p).summary() for p in all_pairs()]
+    lines = []
+    for r in rows:
+        state = f"{r['errors']} error(s), {r['warnings']} warning(s)" if r["errors"] or r["warnings"] else "clean"
+        pub = (r["last_publish"] or "never")[:16].replace("T", " ")
+        lines.append(f"{r['name']:<24} {r['claims']:>4} claims  {r['artifacts']:>3} artifacts  "
+                     f"published {pub:<16}  {state}")
+    _emit(args, {"papers": rows}, "\n".join(lines) or "no paired repos found under the roots")
+    return 1 if any(r["errors"] for r in rows) else 0
+
+
+def cmd_tui(args) -> int:
+    try:
+        from .tui import run
+    except ImportError as e:
+        raise TauraError(f"the TUI needs Textual: pip install 'taura[tui]' ({e})") from None
+    pair = None
+    if not args.all:
+        try:
+            pair = _pair(args)
+        except TauraError:
+            pair = None  # not inside a repo: start from the list of papers
+    return run(pair)
+
+
 # ---- parser ----------------------------------------------------------------------
 
 
@@ -280,6 +315,16 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--accept-unique", action="store_true",
                    help="record every undecided number with exactly one strong match as that result")
     s.set_defaults(func=cmd_resolve)
+    s = sub.add_parser("trace", parents=[common],
+                       help="walk a claim back: a \\res key, file.tex:LINE, or an artifact name")
+    s.add_argument("target", help="mba/f1/mean | res:mba/f1/mean | main.tex:142 | table_main")
+    s.set_defaults(func=cmd_trace)
+    s = sub.add_parser("papers", parents=[common], help="every paired code and paper repo under the roots")
+    s.set_defaults(func=cmd_papers)
+    s = sub.add_parser("tui", parents=[common],
+                       help="browse papers, claims and their provenance (read-only; needs taura[tui])")
+    s.add_argument("--all", action="store_true", help="start from the list of papers even inside a repo")
+    s.set_defaults(func=cmd_tui)
     return p
 
 

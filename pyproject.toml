@@ -10,7 +10,8 @@ requires-python = ">=3.10"
 dependencies = ["tomli>=1.1; python_version < '3.11'"]
 
 [project.optional-dependencies]
-test = ["pytest"]
+tui = ["textual>=8"]
+test = ["pytest", "textual>=8"]
 
 [project.scripts]
 taura = "taura.cli:main"
