@@ -106,3 +106,25 @@ def test_open_in_editor(monkeypatch, tmp_path):
     assert open_in_editor(f, 12) == ["nvim", "+12", str(f)]
     monkeypatch.setenv("VISUAL", "code --wait")
     assert open_in_editor(f, 12) == ["code", "--wait", "-g", f"{f}:12"]
+
+
+def test_long_tables_scroll_with_the_cursor(env, capsys):
+    """A table longer than the screen scrolls to keep the cursor in view."""
+    code, paper = published(env, capsys)
+    lines = "\n".join(f"Value \\res{{mba/f1/mean}} again, take {i}." for i in range(80))
+    (paper / "main.tex").write_text(MAIN_TEX.replace("%EXTRA%", lines))
+    commit_all(paper, "many claims")
+
+    async def steps(app, pilot):
+        claims = app.screen.query_one("#claims", DataTable)
+        assert claims.row_count == 83
+        assert claims.size.height < 40  # bounded by the screen, not by its rows
+        await pilot.press(*["down"] * 70)
+        await pilot.pause()
+        assert claims.cursor_row == 70
+        assert claims.scroll_offset.y > 0  # it followed the cursor
+        top = claims.scroll_offset.y
+        assert top <= claims.cursor_row < top + claims.size.height
+        assert "take 67" in detail(app)  # rows 0-2 are the fixture's own claims
+
+    drive(TauraApp(discover(code)), steps)

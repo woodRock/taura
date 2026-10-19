@@ -49,6 +49,10 @@ def open_in_editor(path: Path, line: int) -> list[str]:
 
 class PapersScreen(Screen):
     BINDINGS = [Binding("r", "reload", "Reload"), Binding("q", "app.quit", "Quit")]
+    DEFAULT_CSS = """
+    #papers { height: 1fr; }
+    #hint { height: auto; }
+    """
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -99,7 +103,11 @@ class PaperScreen(Screen):
     ]
     DEFAULT_CSS = """
     #body { height: 1fr; }
-    TabbedContent { width: 3fr; }
+    /* Bound every level to the screen, so each table scrolls itself to follow the cursor. */
+    TabbedContent { width: 3fr; height: 1fr; }
+    TabbedContent ContentSwitcher { height: 1fr; }
+    TabPane { height: 1fr; padding: 0; }
+    TabPane DataTable { height: 1fr; }
     #detail-scroll { width: 2fr; border-left: solid $primary-darken-2; padding: 0 1; }
     #summary { height: auto; padding: 0 1; color: $text-muted; }
     #filter { display: none; }
