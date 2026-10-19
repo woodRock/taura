@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import shlex
+import socket
 import subprocess
 import sys
 from dataclasses import asdict
@@ -308,6 +309,10 @@ def cmd_record(args) -> int:
                          ("runner", args.runner), ("cwd", args.cwd)):
         if value is not None:
             rec[field] = value
+    here = socket.gethostname()
+    if rec.get("host") and rec["host"] != here:  # ran elsewhere: say where the data was hashed
+        for d in (rec.get("data") or {}).values():
+            d.setdefault("hashed_on", here)
     if args.started:
         rec["started"] = runs.iso(args.started)
     if args.event == "finish" or args.exit_code is not None:

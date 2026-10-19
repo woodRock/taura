@@ -133,6 +133,8 @@ def test_record_as_gpu_spooler_calls_it(env, capsys):
     assert rc == 0 and rec["status"] == "running" and rec["host"] == "ecs-gpu-02"
     assert (rec["commit"], rec["dirty"], rec["base_commit"]) == (snap, True, head)
     assert rec["seed"] == 7 and rec["config_path"] == "configs/a.yaml" and rec["spooler_job"] == 12
+    import socket
+    assert rec["data"]["fish"]["hashed_on"] == socket.gethostname()  # not the server's copy
     assert rec["started"].startswith("2025-10-19")
 
     rc, rec = run(capsys, "-C", str(code), "record", rid, "--event", "finish", "--exit-code", "0",

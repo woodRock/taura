@@ -160,7 +160,8 @@ def _run_lines(recs: list[dict] | None, indent: str) -> list[str]:
             out.append(f"{indent}           " + "  ".join(x for x in (cfg, seed) if x))
         for name, d in (rr.get("data") or {}).items():
             label = f" {d['label']}" if d.get("label") else ""
-            out.append(f"{indent}           data {name}{label}  {_short(d.get('hash'))}  ({d.get('files', '?')} files)")
+            where = f", hashed on {d['hashed_on']}, not where it ran" if d.get("hashed_on") else ""
+            out.append(f"{indent}           data {name}{label}  {_short(d.get('hash'))}  ({d.get('files', '?')} files{where})")
     return out
 
 
