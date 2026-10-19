@@ -13,6 +13,20 @@ experiment tracker.
 ## Install
 
 ```sh
+curl -fsSL https://raw.githubusercontent.com/woodRock/taura/main/install.sh | bash
+```
+
+This installs `taura` (with the TUI and YAML settings) with [uv](https://docs.astral.sh/uv/) as an isolated tool in `~/.local/bin`,
+installing uv first if needed (and Python 3.11 if the machine doesn't have it). No sudo. Add
+`bash -s -- --upgrade` to update to the latest `main`, or `bash -s -- --uninstall` to remove it:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/woodRock/taura/main/install.sh | bash -s -- --upgrade
+```
+
+For development, from a checkout:
+
+```sh
 pip install -e .          # or: pipx install -e .
 pip install -e '.[tui]'   # with the TUI (Textual)
 ```
