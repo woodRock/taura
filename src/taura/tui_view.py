@@ -167,6 +167,11 @@ def run_card(rr: dict, relevant: set[str] | None = None) -> RenderableType:
         commit.append(" dirty", style="bold red")
         if rr.get("base_commit"):
             commit.append(f" (on {rr['base_commit'][:7]})", style=MUTED)
+        if rr.get("changed_code"):
+            commit.append("  " + ", ".join(rr["changed_code"][:4]) + (" …" if len(rr["changed_code"]) > 4 else ""),
+                          style="red")
+    if rr.get("changed_outputs"):
+        commit.append(f"  · {len(rr['changed_outputs'])} output(s) changed, not code", style=MUTED)
     where = rr.get("host", "?") + (f" · GPU {rr['gpus']}" if rr.get("gpus") not in (None, "") else "")
     if rr.get("spooler_job") is not None:
         where += f" · spooler task {rr['spooler_job']}"

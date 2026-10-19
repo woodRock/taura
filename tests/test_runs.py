@@ -239,3 +239,19 @@ def test_environment_and_diff(env, capsys, tmp_path):
     assert d["diff"]["env"] == {"recorded": [False, True]}
     rc, t = run(capsys, "-C", str(code), "runs", "--diff", first["id"], "nope")
     assert rc == 2
+
+
+def test_remote_dirty_paths_only_code_counts(env, capsys):
+    """A server checkout where an earlier job rewrote tracked results is not dirty code."""
+    code, _ = prepare(env, capsys)
+    head = git(code, "rev-parse", "HEAD").strip()
+    rc, rec = run(capsys, "-C", str(code), "record", "srv-1", "--event", "start", "--command", "python3 x.py",
+                  "--commit", head, "--dirty-count", "3", "--dirty-paths", "results/a.json", "figs/b.png",
+                  "results/c.csv")
+    assert rec["dirty"] is False and rec["changed_outputs"] == ["figs/b.png", "results/a.json", "results/c.csv"]
+    rc, rec = run(capsys, "-C", str(code), "record", "srv-2", "--event", "start", "--command", "python3 x.py",
+                  "--commit", head, "--dirty-count", "2", "--dirty-paths", "results/a.json", "configs/a.yaml")
+    assert rec["dirty"] is True and rec["changed_code"] == ["configs/a.yaml"]
+    rc, rec = run(capsys, "-C", str(code), "record", "srv-3", "--event", "start", "--command", "python3 x.py",
+                  "--commit", head, "--dirty-count", "2")  # an older runner: count only
+    assert rec["dirty"] is True

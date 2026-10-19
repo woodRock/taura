@@ -82,7 +82,8 @@ def load_all(code: Path) -> dict[str, dict]:
     return out
 
 
-ORDER = ("id", "status", "note", "started", "finished", "exit_code", "commit", "base_commit", "dirty", "command", "cwd",
+ORDER = ("id", "status", "note", "started", "finished", "exit_code", "commit", "base_commit", "dirty", "changed_code",
+         "changed_outputs", "command", "cwd",
          "config_path", "config_hash", "seed", "host", "gpus", "spooler_job", "runner", "inputs", "data",
          "outputs")
 
@@ -141,21 +142,31 @@ def parse_command(code: Path, argv: list[str], base: Path | None = None) -> dict
 # ---- git ------------------------------------------------------------------------------------
 
 
-def git_state(code: Path, commit: str | None = None, dirty_count: int | None = None) -> dict:
+def git_state(code: Path, commit: str | None = None, dirty_count: int | None = None,
+              dirty_paths: list[str] | None = None) -> dict:
     """commit, dirty, and base_commit when the commit is a snapshot of a dirty tree.
+
+    Only uncommitted code and configuration make a run dirty (see is_code). Other changed tracked
+    files, typically outputs an earlier job rewrote, are listed as changed_outputs. A runner that
+    reports a count but not the paths (older gpu-spooler) is taken at its word.
 
     gpu-spooler syncs a dirty tree as a `git stash create` commit (two parents, "gpu-spooler sync"):
     that is recorded as dirty, with the commit it was made on top of."""
     if commit == "unknown":  # the runner couldn't tell: record that, not a guess
         return {"commit": "unknown"}
-    if not gitutil.is_repo(code):
-        return {"commit": commit or "unknown", "dirty": bool(dirty_count)}
     if commit is None:
-        commit = gitutil.head(code) or "unknown"
-        dirty = bool(uncommitted_code(code))
+        commit = gitutil.head(code) if gitutil.is_repo(code) else None
+        changed, outputs = split_changes(code, uncommitted(code), local=True)
+        out = {"commit": commit or "unknown", "dirty": bool(changed)}
+    elif dirty_paths is not None:
+        changed, outputs = split_changes(code, dirty_paths)
+        out = {"commit": commit, "dirty": bool(changed)}
     else:
-        dirty = bool(dirty_count)
-    out = {"commit": commit, "dirty": dirty}
+        changed, outputs = [], []
+        out = {"commit": commit, "dirty": bool(dirty_count)}
+    out |= {"changed_code": changed[:MAX_LISTED] or None, "changed_outputs": outputs[:MAX_LISTED] or None}
+    if not gitutil.is_repo(code):
+        return out
     r = gitutil.git(code, "log", "-1", "--format=%P%n%s", commit, check=False)
     if r.returncode == 0:
         parents, _, subject = r.stdout.partition("\n")
@@ -164,21 +175,46 @@ def git_state(code: Path, commit: str | None = None, dirty_count: int | None = N
     return out
 
 
+MAX_LISTED = 50
+CODE_NAMES = ("Makefile", "Dockerfile", "Snakefile")
+CODE_CONFIG_SUFFIXES = (".yaml", ".yml", ".toml", ".cfg", ".ini")  # not .json: in a results repo it's data
+
+
+def is_code(code: Path, rel: str, watch: list[str] | None = None) -> bool:
+    """Whether a changed file can change what a run computes: source, configuration, build files,
+    or anything under [runs] watch. Results, figures and reports are not."""
+    name = Path(rel).name
+    if (Path(rel).suffix.lower() in CODE_SUFFIXES + CODE_CONFIG_SUFFIXES or name in CODE_NAMES
+            or name.startswith("requirements") and name.endswith(".txt")):
+        return True
+    watch = watch_paths(code) if watch is None else watch
+    return any(rel == w.rstrip("/") or rel.startswith(w.rstrip("/") + "/") for w in watch)
+
+
+def uncommitted(code: Path) -> list[str]:
+    """Changed tracked files, except taura's own (ledger/, .taura/)."""
+    if not gitutil.is_repo(code):
+        return []
+    r = gitutil.git(code, "status", "--porcelain", "--untracked-files=no", "--", ".",
+                    f":(exclude){gitutil.STAGING_DIR}", f":(exclude){LEDGER}", check=False)
+    return [line[3:].split(" -> ")[-1].strip('"') for line in r.stdout.splitlines() if line.strip()]
+
+
+def split_changes(code: Path, paths: list[str], local: bool = False) -> tuple[list[str], list[str]]:
+    """(code changes, other changes). Here, a file whose content is the recorded output of a run is
+    an output even if it looks like code (an earlier step of a pipeline wrote it)."""
+    watch = watch_paths(code)
+    paths = [p for p in paths if p and not p.startswith((LEDGER + "/", gitutil.STAGING_DIR + "/"))]
+    code_like = [p for p in paths if is_code(code, p, watch)]
+    if local and code_like:
+        recorded = set(Index(code).by_hash)
+        code_like = [p for p in code_like if not ((code / p).is_file() and content_hash(code / p) in recorded)]
+    return sorted(code_like), sorted(p for p in paths if p not in code_like)
+
+
 def uncommitted_code(code: Path) -> list[str]:
-    """Uncommitted changes that could affect a run: everything except taura's own files (ledger/,
-    .taura/) and files whose content is the recorded output of a run (an earlier step of a pipeline
-    rewriting a tracked report is not a code edit)."""
-    r = gitutil.git(code, "status", "--porcelain", "--", ".", f":(exclude){gitutil.STAGING_DIR}",
-                    f":(exclude){LEDGER}", check=False)
-    outputs = set(Index(code).by_hash) if r.stdout.strip() else set()
-    changed = []
-    for line in r.stdout.splitlines():
-        rel = line[3:].split(" -> ")[-1].strip('"')
-        f = code / rel
-        if f.is_file() and content_hash(f) in outputs:
-            continue
-        changed.append(rel)
-    return changed
+    """Uncommitted changes that could affect a run (see split_changes)."""
+    return split_changes(code, uncommitted(code), local=True)[0]
 
 
 def commit_exists(code: Path, commit: str) -> bool:
@@ -394,7 +430,8 @@ class Index:
         rec = self.records.get(rid)
         if rec is None:
             return {"id": rid, "link": how, "missing": True}
-        keys = ("status", "started", "finished", "exit_code", "commit", "base_commit", "dirty", "command",
+        keys = ("status", "started", "finished", "exit_code", "commit", "base_commit", "dirty", "changed_code",
+                "changed_outputs", "command",
                 "config_path", "config_hash", "seed", "host", "gpus", "spooler_job", "runner", "data", "env",
                 "note")
         return {"id": rid, "link": how} | {k: rec[k] for k in keys if k in rec}

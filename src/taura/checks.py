@@ -406,7 +406,8 @@ def check_runs(ledger: Ledger, lock: dict) -> list[Finding]:
         rec, loc, used = idx.records[rid], f"ledger/runs/{rid}.toml", ", ".join(sorted(set(whats)))
         if rec.get("dirty"):
             out.append(Finding("dirty-run", "warn", "code", loc,
-                               f"{used} comes from run {rid}, made with uncommitted changes",
+                               f"{used} comes from run {rid}, made with uncommitted changes"
+                               + (f" to {', '.join(rec['changed_code'][:5])}" if rec.get("changed_code") else ""),
                                "re-run from a clean, committed tree before submission"))
         if rec.get("exit_code") not in (0, None):
             out.append(Finding("failed-run", "warn", "code", loc,

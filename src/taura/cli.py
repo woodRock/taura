@@ -321,7 +321,8 @@ def cmd_record(args) -> int:
         rec = runs.start_record(code, args.id, argv, command=args.command, cwd=base,
                                 runner=args.runner) if args.event in (None, "start") or argv else {"id": args.id}
     if new or args.commit:
-        rec |= runs.git_state(code, args.commit, args.dirty_count if args.commit else None)
+        rec |= runs.git_state(code, args.commit, args.dirty_count if args.commit else None,
+                              args.dirty_paths if args.commit else None)
     for field, value in (("host", args.host), ("gpus", args.gpus), ("spooler_job", args.spooler_job),
                          ("runner", args.runner), ("cwd", args.cwd), ("note", args.note)):
         if value is not None:
@@ -486,6 +487,8 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--cwd", help="its working directory, relative to the code repo")
     s.add_argument("--commit", help="the commit it ran at (default: this repo's HEAD)")
     s.add_argument("--dirty-count", type=int, default=0, help="uncommitted changes where it ran")
+    s.add_argument("--dirty-paths", nargs="*", metavar="PATH",
+                   help="which tracked files were changed where it ran: only code and config make it dirty")
     s.add_argument("--host", help="where it ran")
     s.add_argument("--gpus", help="GPU indices")
     s.add_argument("--spooler-job", type=int, help="gpu-spooler task id")
