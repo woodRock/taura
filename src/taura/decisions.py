@@ -116,6 +116,10 @@ For each item decide, from the text, what the number is:
 - "unrecorded": it IS a computed result of this paper's experiments (an error, score, count of
   anchors, coverage, timing...) but none of the candidates is it, or there are no candidates.
 
+An item with "more_candidates" matched more recorded results than are listed (a very common value
+such as 0). If it is a result but none of the listed candidates, answer "unrecorded" and say which
+result it reports in the reason.
+
 Reply with JSON only, no prose, in exactly this shape:
 {"decisions": [{"id": "<item id>", "verdict": "result" | "not-a-result" | "unrecorded",
                 "key": "<candidate key, only for result>", "reason": "<one short sentence citing the text>"}]}
@@ -124,12 +128,19 @@ Items:
 """
 
 
+MAX_CANDIDATES = 40  # a typed 0 or 0\% can match thousands of recorded zeros; the prompt must stay small
+
+
 def packet(lit: Literal) -> dict:
-    return {
+    out = {
         "id": lit.id, "number": lit.text, "location": lit.location, "section": lit.section,
         "in_caption": lit.in_caption, "sentence": lit.sentence, "paragraph": lit.paragraph,
-        "candidates": [{k: o[k] for k in ("key", "renders_as", "result_label", "metric", "stat")} for o in lit.options],
+        "candidates": [{k: o[k] for k in ("key", "renders_as", "result_label", "metric", "stat")}
+                       for o in lit.options[:MAX_CANDIDATES]],
     }
+    if len(lit.options) > MAX_CANDIDATES:
+        out["more_candidates"] = len(lit.options) - MAX_CANDIDATES
+    return out
 
 
 def _parse_reply(text: str) -> list[dict]:
@@ -168,7 +179,8 @@ def ask_agent(cmd: str, lits: list[Literal], batch: int = 20, timeout: int = 600
             problems.append(f"batch {start // batch + 1}: {by} timed out after {timeout}s")
             continue
         if proc.returncode != 0:
-            problems.append(f"batch {start // batch + 1}: {by} exited {proc.returncode}: {proc.stderr.strip()[-300:]}")
+            said = (proc.stderr.strip() or proc.stdout.strip())[-300:]  # some agents report errors on stdout
+            problems.append(f"batch {start // batch + 1}: {by} exited {proc.returncode}: {said}")
             continue
         try:
             replies = _parse_reply(proc.stdout)

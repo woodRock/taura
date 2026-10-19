@@ -144,3 +144,21 @@ def test_resolve_by_hand_and_mismatch(env, capsys, tmp_path):
     assert rc == 0  # nothing strong-unique left; still fine
     rc, r = run(capsys, "-C", str(code), "resolve", "nope")
     assert rc == 2 and "no typed number with id" in r["error"]
+
+
+def test_packet_caps_candidates_and_agent_errors_on_stdout_are_shown(tmp_path):
+    """A typed 0\\% can match thousands of recorded zeros: the prompt lists a few, and says how many more."""
+    from taura import decisions
+    from taura.claims import Literal
+
+    opts = [{"key": f"r/{i}/x", "renders_as": "0", "result_label": "r", "metric": str(i), "stat": "x"}
+            for i in range(decisions.MAX_CANDIDATES + 7)]
+    lit = Literal(file="main.tex", line=3, col=0, text=r"0\%", value="0", percent=True, context="", id="abc",
+                  options=opts)
+    p = decisions.packet(lit)
+    assert len(p["candidates"]) == decisions.MAX_CANDIDATES and p["more_candidates"] == 7
+
+    agent = tmp_path / "too_long.py"
+    agent.write_text("import sys\nsys.stdin.read()\nprint('Prompt is too long')\nsys.exit(1)\n")
+    _, problems = decisions.ask_agent(f"{sys.executable} {agent}", [lit])
+    assert problems == [f"batch 1: {Path(sys.executable).name} exited 1: Prompt is too long"]
