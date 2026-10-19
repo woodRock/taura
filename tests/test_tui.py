@@ -32,7 +32,8 @@ def drive(app, steps):
 
 
 def detail(app) -> str:
-    return str(app.screen.query_one("#detail", Static).content)
+    from taura.tui_view import plain
+    return plain(app.screen.query_one("#detail", Static).content)
 
 
 def test_paper_screen_tabs_and_trace(env, capsys):
@@ -43,14 +44,17 @@ def test_paper_screen_tabs_and_trace(env, capsys):
         assert isinstance(app.screen, PaperScreen)
         claims = app.screen.query_one("#claims", DataTable)
         assert claims.row_count == 3
-        assert "\\res{mba/f1/mean} prints 0.912  [stale, code now gives 0.917]" in detail(app)
+        text = detail(app)
+        assert "\\res{mba/f1/mean}" in text and " stale " in text
+        assert "prints 0.912" in text and "code now gives 0.917" in text and "changed since publish" in text
         await pilot.press("down")
         assert "\\res{mba/f1/std}" in detail(app)
 
         app.screen.query_one(TabbedContent).active = "tab-artifacts"
         await pilot.pause()
         assert app.screen.query_one("#artifacts", DataTable).row_count == 3
-        assert "artifact fig_alignment (figure)" in detail(app)
+        text = detail(app)
+        assert "fig_alignment  figure" in text and "generated/fig_alignment.pdf" in text
 
         app.screen.query_one(TabbedContent).active = "tab-findings"
         await pilot.pause()
@@ -84,7 +88,8 @@ def test_typed_numbers_tab(env, capsys):
         app.screen.query_one(TabbedContent).active = "tab-typed"
         await pilot.pause()
         assert app.screen.query_one("#typed", DataTable).row_count == 1
-        assert "typed 0.871  → matches" in detail(app)
+        text = detail(app)
+        assert "0.871" in text and " matches " in text and "typed in the paper" in text
 
     drive(TauraApp(discover(code)), steps)
 
@@ -143,7 +148,7 @@ def test_runs_tab(env, capsys):
         await pilot.pause()
         assert app.screen.query_one("#runs", DataTable).row_count == 1
         text = detail(app)
-        assert "run 2026-10-19-spooler-7" in text and "spooler task 7" in text and "results/out.json" in text
+        assert "2026-10-19-spooler-7" in text and "spooler task 7" in text and "results/out.json" in text
         assert "nothing published comes from this run" in text
 
     drive(TauraApp(discover(code)), steps)

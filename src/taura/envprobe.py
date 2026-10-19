@@ -112,3 +112,32 @@ def diff(a: dict | None, b: dict | None) -> dict:
     if changed:
         out["packages"] = changed
     return out
+
+
+def _norm(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def declared(code: Path) -> set[str]:
+    """Package names a code repo declares: itself, pyproject dependencies (all extras) and
+    requirements*.txt. Used to show the packages that matter in a run's environment."""
+    names: set[str] = set()
+    spec = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
+    py = code / "pyproject.toml"
+    if py.is_file():
+        from . import tomlio
+        try:
+            proj = tomlio.load(py).get("project", {})
+        except Exception:
+            proj = {}
+        if proj.get("name"):
+            names.add(proj["name"])
+        reqs = list(proj.get("dependencies", []))
+        for extra in proj.get("optional-dependencies", {}).values():
+            reqs += extra
+        names |= {m.group(1) for r in reqs if (m := spec.match(r))}
+    for req in code.glob("requirements*.txt"):
+        for line in req.read_text(errors="replace").splitlines():
+            if not line.strip().startswith(("#", "-")) and (m := spec.match(line)):
+                names.add(m.group(1))
+    return {_norm(n) for n in names}

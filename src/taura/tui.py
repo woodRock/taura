@@ -20,8 +20,9 @@ from textual.containers import Horizontal, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import DataTable, Footer, Header, Input, Static, TabbedContent, TabPane
 
-from . import NAME
+from . import NAME, envprobe
 from . import trace as tracemod
+from . import tui_view as view
 from .discovery import Pair
 from .model import Project
 from .papers import all_pairs
@@ -120,6 +121,7 @@ class PaperScreen(Screen):
         self.project = project
         self.rows: dict[str, list[tuple[tuple, object]]] = {}  # tab -> [(cells, item)]
         self.filter_text = ""
+        self.relevant = envprobe.declared(project.code)  # packages worth showing in run environments
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -197,22 +199,23 @@ class PaperScreen(Screen):
         key = table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
         return self.rows[tab][int(key)][1]
 
-    def detail_text(self, item) -> str:
+    def detail(self, item):
+        """The highlighted row's provenance, as a structured view (tui_view)."""
         p, tab = self.project, self.active_tab
         if item is None:
-            return "Nothing here."
-        if tab == "runs":
-            return tracemod.render_run(p, item)
+            return Text("Nothing here.", style="grey50")
         if tab == "findings":
-            lines = [f"{item.severity}  {item.id}  {item.repo}:{item.location}", "", item.message, "",
-                     f"fix: {item.fix}"]
-            return "\n".join(lines + (["", item.diff] if item.diff else []))
-        maker = {"claims": tracemod._claim, "artifacts": tracemod._artifact, "typed": tracemod._typed}[tab]
-        name = getattr(item, "location", None) or getattr(item, "name", None) or item.literal.location
-        return tracemod.render({"paper": p.name, "target": name, "items": [maker(p, item)]})
+            return view.finding_view(item)
+        if tab == "runs":
+            return view.run_view(p, item)
+        if tab == "claims":
+            return view.claim_view(tracemod._claim(p, item), self.relevant)
+        if tab == "artifacts":
+            return view.artifact_view(tracemod._artifact(p, item), self.relevant)
+        return view.typed_view(tracemod._typed(p, item), self.relevant)
 
     def show_detail(self) -> None:
-        self.query_one("#detail", Static).update(Text(self.detail_text(self.selected())))
+        self.query_one("#detail", Static).update(self.detail(self.selected()))
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         self.show_detail()
