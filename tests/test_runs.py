@@ -231,5 +231,8 @@ def test_environment_and_diff(env, capsys, tmp_path):
     rc, d = run(capsys, "-C", str(code), "runs", "--diff", first["id"], "elsewhere-1")
     assert d["diff"]["env"]["python"][1] == "3.12.15"
     assert d["diff"]["env"]["packages"]["warpalign"][1] == "3.0.1 editable @6743cf8de37a"
+    runsmod.save(code, {"id": "old", "status": "done", "commit": first["commit"], "dirty": False})  # no env
+    rc, d = run(capsys, "-C", str(code), "runs", "--diff", "old", first["id"])
+    assert d["diff"]["env"] == {"recorded": [False, True]}
     rc, t = run(capsys, "-C", str(code), "runs", "--diff", first["id"], "nope")
     assert rc == 2

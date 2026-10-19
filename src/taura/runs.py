@@ -346,9 +346,10 @@ def diff(a: dict, b: dict) -> dict:
     data = {n: v for n, v in data.items() if v[0] != v[1]}
     if data:
         out["data"] = data
-    env = envprobe.diff(a.get("env"), b.get("env"))
-    if env or bool(a.get("env")) != bool(b.get("env")):
-        out["env"] = env or {"recorded": (bool(a.get("env")), bool(b.get("env")))}
+    if bool(a.get("env")) != bool(b.get("env")):  # one run predates environment capture: nothing to compare
+        out["env"] = {"recorded": (bool(a.get("env")), bool(b.get("env")))}
+    elif envprobe.diff(a.get("env"), b.get("env")):
+        out["env"] = envprobe.diff(a.get("env"), b.get("env"))
     oa, ob = a.get("outputs") or {}, b.get("outputs") or {}
     names = sorted(set(oa) | set(ob))
     out["outputs"] = {"identical": [n for n in names if oa.get(n) == ob.get(n)],
