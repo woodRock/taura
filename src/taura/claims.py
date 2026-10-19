@@ -46,6 +46,7 @@ MAX_CANDIDATES = 8
 SECTION = re.compile(r"\\(?:sub)*section\*?\s*(?:\[[^\]]*\])?\s*\{([^{}]*)\}")
 SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z\\(])")
 PARAGRAPH_CHARS = 900
+RANGE_PERCENT = re.compile(r"\s*(?:--|–|to)\s*\d+(?:\.\d+)?\s*\\%")
 
 
 def _mask_args(line: str) -> str:
@@ -208,8 +209,10 @@ def literals(paper: Path) -> list[Literal]:
                     pos = starts[i] + n.start() - lead
                     sent = next((text[a:b] for a, b in sentences if a <= pos < b), text)
                     lo = max(0, pos - PARAGRAPH_CHARS // 2)
+                    # "0.2--5.3\\%": the % sign at the end of a range belongs to both ends
+                    pct = bool(n.group("pct")) or bool(RANGE_PERCENT.match(code, n.end()))
                     out.append(Literal(
-                        rel, i, n.start() + 1, lit_text, value, bool(n.group("pct")), ctx,
+                        rel, i, n.start() + 1, lit_text, value, pct, ctx,
                         negative=bool(n.group("sign")), exponent=exponent,
                         id=literal_id(rel, lit_text, code[:n.start()], code[n.end():]), sentence=sent.strip(),
                         paragraph=("…" if lo else "") + text[lo:lo + PARAGRAPH_CHARS].strip(),
@@ -238,13 +241,19 @@ def _matches(lit: Literal, v: float | int, stat: str | None) -> bool:
         d = len(lit.value.split(".")[1]) if "." in lit.value else 0
         m = v / 10.0 ** lit.exponent
         return f"{m:.{d}f}" == lit.value or f"{math.ceil(m * 10 ** d - 1e-9) / 10 ** d:.{d}f}" == lit.value
-    if "." not in lit.value:  # integers: only large ones; small ones are too often coincidences
-        return isinstance(v, int) and not isinstance(v, bool) and int(lit.value) >= 100 and v == int(lit.value)
-    decimals = len(lit.value.split(".")[1])
-    if stat == "n" or (decimals < 2 and not lit.percent) or isinstance(v, bool):
+    if "." not in lit.value and not lit.percent:  # integers: only large ones; small ones are often coincidences
+        return isinstance(v, int) and int(lit.value) >= 100 and v == int(lit.value)
+    if stat == "n":
         return False
+    decimals = len(lit.value.split(".")[1]) if "." in lit.value else 0
     scaled = [abs(v) * 100, abs(v)] if lit.percent else [abs(v)]
-    return any(f"{x:.{decimals}f}" == lit.value for x in scaled)
+    return any(_rounds_to(x, decimals, lit.value) for x in scaled)
+
+
+def _rounds_to(x: float, decimals: int, want: str) -> bool:
+    """x printed at `decimals` gives `want`, rounding to nearest or up ("less than 0.003" for 0.0023)."""
+    up = math.ceil(x * 10 ** decimals - 1e-9) / 10 ** decimals
+    return f"{x:.{decimals}f}" == want or f"{up:.{decimals}f}" == want
 
 
 def _format_hint(lit: Literal, key: str, rendered: str) -> str | None:

@@ -126,6 +126,21 @@ def test_signs_and_scientific_bounds(tmp_path):
     assert by["-0.40"].candidates == ["w/rho"]
 
 
+def test_percent_integers_ranges_and_bounds(tmp_path):
+    (tmp_path / "x.tex").write_text("Coverage 81\\%, rejection 0.2--5.3\\%, at most 0.003~min, shift 3.2~min.\n")
+    code = tmp_path / "code"
+    (code / "ledger/results").mkdir(parents=True)
+    (code / "ledger/artifacts.toml").write_text("")
+    (code / "ledger/results/r.json").write_text(json.dumps({"name": "r", "metrics": {
+        "coverage": 0.809, "low": 0.0016, "high": 0.0533, "cycle": 0.0023, "shift": 3.2119}}))
+    by = {l.text: l for l in match(literals(tmp_path), Ledger(code))}
+    assert by[r"81\%"].candidates == ["r/coverage"]
+    assert by["0.2"].percent and by["0.2"].candidates == ["r/cycle", "r/low"]  # 0.23% too: agent decides
+    assert by[r"5.3\%"].candidates == ["r/high"]
+    assert by["0.003"].candidates == ["r/cycle"]  # a bound: 0.0023 rounded up
+    assert by["3.2"].candidates == ["r/shift"] and not by["3.2"].strong
+
+
 def test_lines_outside_document_are_scanned_in_inputs(tmp_path):
     (tmp_path / "chapter.tex").write_text("We report 0.912 here.\n")
     assert [l.text for l in literals(tmp_path)] == ["0.912"]
