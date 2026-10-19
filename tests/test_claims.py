@@ -104,6 +104,9 @@ def test_format_globs(repos):
     assert led.format_for("pairs", "sep-jul", "pairs/sep-jul/anchors").thousands
     assert not led.format_for("joint", "drifted", "joint/drifted/mean").thousands
     assert led.format_for("joint", "drifted", "joint/drifted/mean").decimals == 2
+    (code / "ledger/artifacts.toml").write_text(
+        '[format."pairs/*/anchors"]\nthousands = true\n[format."pairs/sep-jul/anchors"]\nthousands = false\n')
+    assert not Ledger(code).format_for("pairs", "sep-jul", "pairs/sep-jul/anchors").thousands
     (code / "ledger/artifacts.toml").write_text('[format.default]\ndigits = 3\n')
     with pytest.raises(TauraError, match="digits"):
         Ledger(code).format_for(None, None)

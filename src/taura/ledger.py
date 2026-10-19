@@ -192,7 +192,8 @@ class Ledger:
 
     def format_for(self, result: str | None, metric: str | None, key: str | None = None) -> Format:
         """[format.default], then [format.<metric>], then [format."<result>/<metric>"], then any
-        glob pattern matching the full key (e.g. "pairs/*/anchors"), later patterns winning."""
+        glob pattern matching the full key (e.g. "pairs/*/anchors"; later patterns win), then the
+        exact full key (e.g. "cycle/joint/max")."""
         merged = dict(self.formats.get("default", {}))
         if metric:
             merged.update(self.formats.get(metric, {}))
@@ -202,6 +203,7 @@ class Ledger:
             for pattern, opts in self.formats.items():
                 if any(c in pattern for c in "*?[") and fnmatch.fnmatchcase(key, pattern):
                     merged.update(opts)
+            merged.update(self.formats.get(key, {}))  # the exact full key is the most specific
         unknown = set(merged) - set(FORMAT_OPTIONS)
         if unknown:
             raise TauraError(f"{ARTIFACTS_FILE}: unknown format option(s) {', '.join(sorted(unknown))}; "
