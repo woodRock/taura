@@ -229,6 +229,18 @@ class Project:
         return {k: lock.get(k) for k in ("code_repo", "code_commit", "published")} | {
             "paper": contract(self.paper) if self.paper else None}
 
+    def produced_by_run(self, rid: str) -> list[str]:
+        """What the paper uses that a run produced: results (by explicit link or output hash) and figures."""
+        out = []
+        if self.ledger is not None:
+            for name, r in self.ledger.results.items():
+                if any(x == rid for x, _ in self.runs.linked(r.get("runs"), (r.get("source") or {}).get("hash"))):
+                    out.append(f"result {name}" + ("" if name in self.lock["results"] else " (not published)"))
+        for name, entry in self.lock["artifacts"].items():
+            if entry.get("kind") == "figure" and any(x == rid for x, _ in self.runs.linked(None, entry.get("hash"))):
+                out.append(f"figure {name}")
+        return sorted(out)
+
     def summary(self) -> dict:
         claims = self.claims
         typed = self.typed
@@ -244,6 +256,7 @@ class Project:
             "artifacts": len(self.artifacts),
             "typed_numbers": len(typed),
             "typed_undecided": sum(t.decision is None for t in typed),
+            "runs": len(self.runs.records),
             "errors": self.report.errors,
             "warnings": self.report.warnings,
         }

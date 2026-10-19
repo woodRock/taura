@@ -170,6 +170,20 @@ def _publish_line(pub: dict, indent: str) -> str:
     return f"{indent}publish  {pub['published']} from {(pub.get('code_commit') or '?')[:7]} ({pub.get('code_repo')})"
 
 
+def render_run(p, rid: str) -> str:
+    """One run record in full, and what in the paper came from it."""
+    rec = p.runs.records.get(rid, {})
+    out = [f"{p.name}: run {rid}", ""]
+    out += _run_lines([p.runs.summary(rid, "record")], "  ")
+    if rec.get("inputs"):
+        out.append("  inputs   " + ", ".join(rec["inputs"]))
+    for path, h in (rec.get("outputs") or {}).items():
+        out.append(f"  output   {path}  {_short(h)}")
+    used = p.produced_by_run(rid)
+    out += ["", "  in the paper: " + (", ".join(used) if used else "nothing published comes from this run")]
+    return "\n".join(out)
+
+
 def render(t: dict) -> str:
     out = [f"{t['paper']}: {t['target']}"]
     if not t["items"]:

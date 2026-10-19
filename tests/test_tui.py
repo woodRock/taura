@@ -128,3 +128,22 @@ def test_long_tables_scroll_with_the_cursor(env, capsys):
         assert "take 67" in detail(app)  # rows 0-2 are the fixture's own claims
 
     drive(TauraApp(discover(code)), steps)
+
+
+def test_runs_tab(env, capsys):
+    from taura import runs as runsmod
+    code, paper = published(env, capsys)
+    runsmod.save(code, {"id": "2026-10-19-spooler-7", "status": "done", "exit_code": 0, "commit": "a" * 40,
+                        "dirty": False, "host": "cuda01", "command": "python3 train.py --seed 1",
+                        "spooler_job": 7, "started": "2026-10-19T10:00:00+13:00",
+                        "outputs": {"results/out.json": "sha256:abc"}})
+
+    async def steps(app, pilot):
+        app.screen.query_one(TabbedContent).active = "tab-runs"
+        await pilot.pause()
+        assert app.screen.query_one("#runs", DataTable).row_count == 1
+        text = detail(app)
+        assert "run 2026-10-19-spooler-7" in text and "spooler task 7" in text and "results/out.json" in text
+        assert "nothing published comes from this run" in text
+
+    drive(TauraApp(discover(code)), steps)

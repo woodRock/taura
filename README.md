@@ -39,10 +39,51 @@ taura publish               # copy to <paper>/generated/, update taura.lock, com
 taura check                 # verify the chain; exit 1 on any finding
 taura status
 taura adopt                 # typed numbers in the paper and the \res keys they match (report only)
+taura run -- python3 train.py --config c.yaml --seed 3   # run and record an experiment
+taura runs                  # the run records
 taura trace TARGET          # walk a claim back: a \res key, main.tex:142, or an artifact
 taura papers                # every paired code and paper repo under the roots
 taura tui                   # browse papers, claims and their provenance (read-only)
 ```
+
+## Recording runs
+
+Every experiment run gets a record in `ledger/runs/<id>.toml`:
+
+- the commit, and whether the tree was dirty;
+- the command, its `--config` file (hashed), its `--seed`, and the scripts it named;
+- the host, and the start and finish times;
+- the exit code;
+- the datasets;
+- the outputs it wrote, with content hashes.
+
+- **On your machine:** `taura run -- <cmd>`. Output and exit code pass through
+  unchanged. The record is written at start and again at the end. The command
+  sees `TAURA_RUN_ID`.
+- **Through gpu-spooler:** nothing to add. With taura installed and a `ledger/`
+  in the repo, the daemon records each task: the commit the server actually ran
+  at start, and the exit code at the end. `task fetch PATHS --after ID` records
+  the files it brought back. A `task sync` of a dirty tree is recorded as dirty,
+  with the commit it was made on.
+- **Anything else:** `taura record ID --event start|finish|fetch ...`.
+
+Datasets are declared in `taura.toml`, each with a human label and a content
+hash. taura caches file hashes by size and mtime in `.taura/`, so only changed
+files are re-read:
+
+```toml
+[data.fish-oil]
+path = "data/fish_oil"
+label = "v1"
+
+[runs]
+watch = ["src/"]          # code whose change makes earlier results suspect (besides the run's own scripts)
+```
+
+Results link to runs on their own: a result whose source file has the same
+content hash as a run's output came from that run. A result can also list run
+IDs in `runs`. Figures link the same way, so the exporter doesn't need to change.
+`taura trace` and the TUI's Runs tab show the links.
 
 ## Tracing claims
 
@@ -59,7 +100,7 @@ or an artifact name. For each claim it shows:
 `--json` gives the same as data.
 
 `taura tui` shows this as a browser. The papers screen lists every pair. Each
-paper has tabs for Claims, Artifacts, Typed numbers and Findings, with the trace
+paper has tabs for Claims, Artifacts, Typed numbers, Runs and Findings, with the trace
 of the highlighted row on the right. Keys: `enter` open, `e` open the line in
 `$EDITOR`, `/` filter, `r` reload, `escape` back, `q` quit. Started inside a repo,
 it opens that paper.
@@ -175,6 +216,11 @@ said, e.g. `12.2` where the text had `12.25`.
 | `literal-number` | warn | a typed number matches a recorded result (3+ decimals, a percentage, or an integer ≥ 100), or was decided to be one and isn't rewritten yet |
 | `unrecorded-result` | warn | a typed number decided to be a computed result the ledger doesn't have |
 | `adopt-mismatch` | warn | a number rewritten as `\res{key}` now prints differently from what the paper said |
+| `missing-run` | error | a result names a run with no record |
+| `missing-commit` | error | a run's commit is not in the code repo |
+| `dirty-run` | warn | a published result or figure comes from a run with uncommitted changes |
+| `failed-run` | warn | ... from a run that exited non-zero |
+| `code-changed-since-run` | warn | ... from a run whose scripts, config or `[runs] watch` paths changed since its commit |
 | `seed-claim` | warn | "N seeds/runs/folds" on the line of (or next to) a `\res` whose result has `n` ≠ N |
 
 `publish` refuses if the paper has uncommitted changes, is behind its upstream
@@ -193,10 +239,9 @@ original provenance header.
 
 ## Not yet
 
-Run provenance is phase C: `taura run`, `taura record`, run records,
-`missing-run`/`missing-commit`/`dirty-run`, a "result older than its code" check,
-data versioning, and the gpu-spooler and alignbench integrations. After that,
-traces end at runs, and the TUI gains a "changed since publish" view and actions.
+- The alignbench adapter.
+- A "changed since publish" view in the TUI.
+- TUI actions (check, diff, publish, resolve).
 
 ## Tests
 

@@ -63,7 +63,7 @@ class PapersScreen(Screen):
     def on_mount(self) -> None:
         self.title, self.sub_title = NAME, "papers"
         table = self.query_one("#papers", DataTable)
-        table.add_columns("paper", "claims", "stale", "dangling", "artifacts", "typed, undecided",
+        table.add_columns("paper", "claims", "stale", "dangling", "artifacts", "runs", "typed, undecided",
                           "errors", "warnings", "last publish", "code")
         self.action_reload()
 
@@ -77,7 +77,7 @@ class PapersScreen(Screen):
                 Text(s["name"], style="bold"), str(s["claims"]),
                 Text(str(s["claims_stale"]), style="yellow" if s["claims_stale"] else "dim"),
                 Text(str(s["claims_dangling"]), style="red" if s["claims_dangling"] else "dim"),
-                str(s["artifacts"]), f"{s['typed_numbers']}, {s['typed_undecided']}",
+                str(s["artifacts"]), str(s["runs"]), f"{s['typed_numbers']}, {s['typed_undecided']}",
                 Text(str(s["errors"]), style="bold red" if s["errors"] else "green"),
                 Text(str(s["warnings"]), style="yellow" if s["warnings"] else "green"),
                 (s["last_publish"] or "never")[:16].replace("T", " "), s["code"], key=str(i))
@@ -92,6 +92,7 @@ TABS = {
     "claims": ("Claims", ("location", "key", "prints", "status")),
     "artifacts": ("Artifacts", ("name", "kind", "output", "used at", "status")),
     "typed": ("Typed numbers", ("location", "number", "verdict", "key / reason")),
+    "runs": ("Runs", ("run", "status", "commit", "host", "command")),
     "findings": ("Findings", ("severity", "id", "location", "message")),
 }
 
@@ -160,6 +161,11 @@ class PaperScreen(Screen):
                         (f"\\res{{{t.decision.key}}}" if t.decision and t.decision.key
                          else (t.decision.reason if t.decision else ", ".join(t.literal.candidates[:3])))[:90]), t)
                       for t in p.typed],
+            "runs": [((rid, styled({"done": "ok", "failed": "error"}.get(r.get("status", ""), r.get("status", "?"))),
+                       (r.get("commit") or "?")[:7] + (" dirty" if r.get("dirty") else ""),
+                       str(r.get("host", "?")), str(r.get("command", ""))[:70]), rid)
+                     for rid, r in sorted(p.runs.records.items(), key=lambda kv: kv[1].get("started", ""),
+                                          reverse=True)],
             "findings": [((styled(f.severity), f.id, f"{f.repo}:{f.location}", f.message[:100]), f)
                          for f in p.findings],
         }
@@ -195,6 +201,8 @@ class PaperScreen(Screen):
         p, tab = self.project, self.active_tab
         if item is None:
             return "Nothing here."
+        if tab == "runs":
+            return tracemod.render_run(p, item)
         if tab == "findings":
             lines = [f"{item.severity}  {item.id}  {item.repo}:{item.location}", "", item.message, "",
                      f"fix: {item.fix}"]
@@ -224,6 +232,8 @@ class PaperScreen(Screen):
                 rel, line = item.used_at[0].rsplit(":", 1)
                 return p.paper / rel, int(line)
             return (p.paper / item.output, 1) if p.paper else None
+        if self.active_tab == "runs":
+            return (p.code / "ledger" / "runs" / f"{item}.toml", 1)
         if self.active_tab == "findings":
             base = p.paper if item.repo == "paper" else p.code
             rel, _, line = item.location.split(" ")[0].partition(":")
