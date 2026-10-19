@@ -100,6 +100,16 @@ def test_source_figure_lifecycle(env, capsys):
     rc, r = run(capsys, "-C", str(code), "check")
     ids = [f["id"] for f in r["findings"]]
     assert "stale-source" in ids
+    # reviewed: this version of the script doesn't change the figure -> quiet until it changes again
+    [f] = [f for f in r["findings"] if f["id"] == "stale-source"]
+    checked = f["fix"].split('checked_against = "')[1].split('"')[0]
+    (code / "ledger/artifacts.toml").write_text((code / "ledger/artifacts.toml").read_text().replace(
+        'made_by = "scripts/paper_figures.py"', f'made_by = "scripts/paper_figures.py"\nchecked_against = "{checked}"'))
+    rc, r = run(capsys, "-C", str(code), "check")
+    assert "stale-source" not in [f["id"] for f in r["findings"]]
+    (code / "scripts/paper_figures.py").write_text("# changed again\n")
+    rc, r = run(capsys, "-C", str(code), "check")
+    assert "stale-source" in [f["id"] for f in r["findings"]]
 
 
 def test_figure_hand_edit_and_missing(env, capsys):

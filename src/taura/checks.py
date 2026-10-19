@@ -15,7 +15,7 @@ from . import runs as runsmod
 from .discovery import LOCK_FILE, Pair
 from .errors import TauraError
 from .generate import is_bold, leading_number, parse, parse_macros, parse_table
-from .hashing import content_hash
+from .hashing import content_hash, sha256_file
 from .ledger import ARTIFACTS_FILE, Ledger, base_key, flatten
 
 
@@ -351,9 +351,14 @@ def check_stale(ledger: Ledger, lock: dict) -> list[Finding]:
                                f"figure {name}: {art.source} doesn't exist",
                                f"run {art.made_by}" if art.made_by else "regenerate it"))
         elif art.made_by and (ledger.code / art.made_by).stat().st_mtime > src.stat().st_mtime:
+            script_hash = sha256_file(ledger.code / art.made_by)
+            if art.options.get("checked_against") == script_hash:
+                continue  # reviewed: this version of the script doesn't change the figure
             out.append(Finding("stale-source", "warn", "code", art.source,
                                f"figure {name}: {art.source} is older than {art.made_by}",
-                               f"re-run {art.made_by}, then `taura publish`"))
+                               f"re-run {art.made_by}, then `taura publish`; or, if the change doesn't affect "
+                               f'this figure, add checked_against = "{script_hash}" to [artifacts.{name}] '
+                               "(it holds until the script changes again)"))
     for name in sorted(set(lock["artifacts"]) - set(ledger.artifacts)):
         out.append(Finding("stale-artifact", "error", "code", name,
                            f"{name} is published but no longer in {ARTIFACTS_FILE}", "`taura publish` will remove it"))
