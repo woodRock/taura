@@ -9,13 +9,15 @@ from __future__ import annotations
 import re
 
 from .errors import TauraError
+from .ledger import base_key
 from .model import ArtifactView, Claim, Project, Typed
 
 LOCATION = re.compile(r"^(?P<file>.+\.tex):(?P<line>\d+)$")
 
 
 def _claim(p: Project, c: Claim) -> dict:
-    result, metric, stat = (p.keys[c.key][:3] if c.key in p.keys else (c.result, None, None))
+    base = base_key(c.key)[0]
+    result, metric, stat = (p.keys[base][:3] if base in p.keys else (c.result, None, None))
     via = next((a for a in p.artifacts if a.kind == "macros" and a.published), None)
     return {
         "kind": "claim", "location": c.location, "text": c.text, "key": c.key, "status": c.status,
@@ -73,7 +75,7 @@ def trace(p: Project, target: str) -> dict:
         kind = "artifact"
     else:
         key = target.removeprefix("res:")
-        if key not in p.keys and key not in p.published:
+        if base_key(key)[0] not in p.keys and key not in p.published:
             raise TauraError(
                 f"{target!r} is not a \\res key, a paper location (file.tex:LINE) or an artifact; "
                 f"artifacts: {', '.join(a.name for a in p.artifacts) or 'none'}")

@@ -16,7 +16,7 @@ from .discovery import LOCK_FILE, Pair
 from .errors import TauraError
 from .generate import is_bold, leading_number, parse, parse_macros, parse_table
 from .hashing import content_hash
-from .ledger import ARTIFACTS_FILE, Ledger, flatten
+from .ledger import ARTIFACTS_FILE, Ledger, base_key, flatten
 
 
 @dataclass
@@ -230,7 +230,7 @@ def check_prose(paper: Path, ledger: Ledger) -> list[Finding]:
         lits = claims.match(claims.literals(paper), ledger)
         seeds = claims.seed_claims(paper, ledger)
         stored = decisions.load(ledger.code)
-        keys = ledger.all_keys()
+        ledger.all_keys()  # surfaces a broken ledger here, not mid-way
     except TauraError:
         return out
     ignore = "; or add % taura:ignore"
@@ -268,21 +268,20 @@ def check_prose(paper: Path, ledger: Ledger) -> list[Finding]:
     for use in papermod.res_uses(paper):
         uses.setdefault(use.file, set()).add(use.key)
     for d in stored.values():
-        if d.verdict != "result" or d.id in present or d.key not in uses.get(d.file, set()):
+        written = [k for k in uses.get(d.file, set()) if base_key(k)[0] == d.key]  # key, or key@N
+        if d.verdict != "result" or d.id in present or not written:
             continue
-        if d.key in published:
-            prints, where = published[d.key], "prints"
-        elif d.key in keys:
-            result, metric, stat, v = keys[d.key]
-            prints, where = ledger.format_for(result, metric, d.key).render(v, stat), "will print"
-        else:
-            continue  # dangling-key covers it
-        if _shown(prints) != _shown(d.literal):
-            out.append(Finding("adopt-mismatch", "warn", "paper", f"{d.file} \\res{{{d.key}}}",
-                               f"\\res{{{d.key}}} {where} {prints}, but the paper said {d.literal} there",
-                               f'set a [format."{d.key}"] entry so it prints as before, or confirm the change '
-                               "is intended (a result changed) and clear it with `taura resolve "
-                               f"{d.id} --clear`"))
+        shown = {k: (published[k], "prints") if k in published else (ledger.render_key(k), "will print")
+                 for k in written}
+        shown = {k: v for k, v in shown.items() if v[0] is not None}  # dangling-key covers the rest
+        if not shown or any(_shown(p) == _shown(d.literal) for p, _ in shown.values()):
+            continue
+        prints, where = next(iter(shown.values()))
+        out.append(Finding("adopt-mismatch", "warn", "paper", f"{d.file} \\res{{{d.key}}}",
+                           f"\\res{{{d.key}}} {where} {prints}, but the paper said {d.literal} there",
+                           f'set a [format."{d.key}"] entry (or variants = [N] and \\res{{{d.key}@N}}) so it '
+                           "prints as before, or confirm the change is intended (a result changed) and clear "
+                           f"it with `taura resolve {d.id} --clear`"))
     for c in seeds:
         out.append(Finding("seed-claim", "warn", "paper", c.location,
                            f"text claims {c.claimed} {c.what} but \\res{{{c.key}}} comes from n = {c.actual}",

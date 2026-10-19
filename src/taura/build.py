@@ -157,7 +157,10 @@ def build_one(ledger: Ledger, art: Artifact, staging: Path, commit_label: str) -
             values = []
             for r in art.results:
                 for key, metric, stat, v in flatten(r, ledger.result(r)):
-                    values.append((key, ledger.format_for(r, metric, key).render(v, stat)))
+                    fmt = ledger.format_for(r, metric, key)
+                    values.append((key, fmt.render(v, stat)))
+                    for d in fmt.variants:  # rounded restatements: key@N
+                        values.append((f"{key}@{d}", ledger.render_key(f"{key}@{d}")))
             body = render_macros(sorted(values))
         else:
             with tempfile.TemporaryDirectory(prefix=f"{NAME}-") as tmp:

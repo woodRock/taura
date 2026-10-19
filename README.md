@@ -175,7 +175,11 @@ Number formats go in `[format.default]`, `[format.<metric>]`,
 `[format."<result>/<metric>"]`, or a glob over full keys such as
 `[format."pairs/*/anchors"]` (later globs win). Options: `decimals`,
 `percent` (0.912 → 91.2; the `\%` stays in the .tex), `thousands` (4396 →
-`4{,}396`) and `sign` (explicit `+`).
+`4{,}396`), `sign` (explicit `+`), `sci` (`2\times10^{-3}`; `"power"` prints a
+mantissa of 1 as `10^{-3}`), `round = "up"` (for bounds such as `p \le …`) and
+`variants`. `variants = [2]` also publishes `key@2`, the same value with 2
+decimals, for a rounded restatement ("0.85" in the abstract, "0.854" in the
+table). It is checked like the key itself.
 
 ## Numbers in prose
 

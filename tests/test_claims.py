@@ -189,3 +189,21 @@ def test_powers_of_ten(tmp_path):
     by = {l.text: l for l in match(literals(tmp_path), Ledger(code))}
     assert by["10^{-3}"].candidates == ["s/lr"] and 'sci = "power"' in by["10^{-3}"].format_hint
     assert by["20{,}000"].candidates == ["s/steps"]
+
+
+def test_precision_variants(env, capsys):
+    """A rounded restatement (0.85 where the table says 0.854) as \\res{key@2}, checked like any key."""
+    from test_e2e import commit_all, run, setup_ledger
+    code, paper = env
+    run(capsys, "-C", str(code), "init")
+    setup_ledger(code)
+    toml = (code / "ledger/artifacts.toml").read_text()
+    (code / "ledger/artifacts.toml").write_text(toml + '\n[format."mba/f1/mean"]\nvariants = [2]\n')
+    commit_all(code, "variant")
+    assert run(capsys, "-C", str(code), "publish")[0] == 0
+    body = (paper / "generated/results.tex").read_text()
+    assert r"\csname taura@mba/f1/mean\endcsname{0.912}" in body
+    assert r"\csname taura@mba/f1/mean@2\endcsname{0.91}" in body
+    rc, t = run(capsys, "-C", str(code), "trace", "mba/f1/mean@2")
+    item = t["items"][0]
+    assert (item["printed"], item["current"]) == ("0.91", "0.91") and item["result"]["key"] == "mba/f1/mean"

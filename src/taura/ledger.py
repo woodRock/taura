@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import fnmatch
 import json
 import math
@@ -24,7 +25,14 @@ KINDS = ("macros", "table", "figure")
 KEY_PART = re.compile(r"^[A-Za-z0-9_.\-]+$")
 
 
-FORMAT_OPTIONS = ("decimals", "percent", "thousands", "sign", "sci", "round")
+FORMAT_OPTIONS = ("decimals", "percent", "thousands", "sign", "sci", "round", "variants")
+VARIANT = "@"  # \res{key@2}: the same value printed with 2 decimals (declared with variants = [2])
+
+
+def base_key(key: str) -> tuple[str, int | None]:
+    """key@2 -> (key, 2); key -> (key, None)."""
+    base, sep, d = key.rpartition(VARIANT)
+    return (base, int(d)) if sep and d.isdigit() else (key, None)
 
 
 @dataclass
@@ -36,6 +44,7 @@ class Format:
     sci: bool | str = False  # True: 0.00195 -> 2\\times10^{-3} (math mode; decimals apply to the
     #                          mantissa). "power": like True, but a mantissa of 1 prints as 10^{-3}
     round: str = "nearest"  # or "up": for bounds such as p <= ..., so rounding never makes them false
+    variants: list = field(default_factory=list)  # also publish key@N with N decimals (a rounded restatement)
 
     def _round(self, x: float, decimals: int) -> float:
         if self.round == "up":
@@ -218,6 +227,18 @@ class Ledger:
             raise TauraError(f"{ARTIFACTS_FILE}: unknown format option(s) {', '.join(sorted(unknown))}; "
                              f"known: {', '.join(FORMAT_OPTIONS)}")
         return Format(**merged)
+
+    def render_key(self, key: str) -> str | None:
+        """What \\res{key} prints from the results now; key@N prints with N decimals. None if unknown."""
+        base, decimals = base_key(key)
+        keys = self.all_keys()
+        if base not in keys:
+            return None
+        result, metric, stat, v = keys[base]
+        fmt = self.format_for(result, metric, base)
+        if decimals is not None:
+            fmt = dataclasses.replace(fmt, decimals=decimals)
+        return fmt.render(v, stat)
 
     def all_keys(self) -> dict[str, tuple[str, str, str | None, object]]:
         """Every \\res key the code repo's results define: key -> (result, metric, stat, value)."""

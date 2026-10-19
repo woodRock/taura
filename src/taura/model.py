@@ -110,11 +110,11 @@ class Project:
             return {}
 
     def render(self, key: str) -> str | None:
-        """What \\res{key} would print from the code repo's results now."""
-        if key not in self.keys or self.ledger is None:
+        """What \\res{key} would print from the code repo's results now (key@N: with N decimals)."""
+        try:
+            return self.ledger.render_key(key) if self.ledger is not None else None
+        except TauraError:
             return None
-        result, metric, stat, v = self.keys[key]
-        return self.ledger.format_for(result, metric, key).render(v, stat)
 
     @cached_property
     def runs(self) -> runsmod.Index:
