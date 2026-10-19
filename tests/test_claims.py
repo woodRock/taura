@@ -129,3 +129,13 @@ def test_signs_and_scientific_bounds(tmp_path):
 def test_lines_outside_document_are_scanned_in_inputs(tmp_path):
     (tmp_path / "chapter.tex").write_text("We report 0.912 here.\n")
     assert [l.text for l in literals(tmp_path)] == ["0.912"]
+
+
+def test_results_globs(repos):
+    code, _ = repos
+    (code / "ledger/artifacts.toml").write_text(
+        '[artifacts.all]\nkind = "macros"\noutput = "generated/all.tex"\nresults = ["*"]\n'
+        '[artifacts.some]\nkind = "macros"\noutput = "generated/some.tex"\nresults = ["j*", "pairs"]\n')
+    led = Ledger(code)
+    assert led.artifacts["all"].results == ["joint", "mba", "other", "pairs"]
+    assert led.artifacts["some"].results == ["joint", "pairs"]

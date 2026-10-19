@@ -133,7 +133,7 @@ def _adopt_line(l, d) -> str:
         return f"{loc} → {l.suggestion}{note}{weak}"
     if l.candidates:
         more = f" (+{l.more} more)" if l.more else ""
-        return f"{loc} ? {' | '.join(l.candidates)}{more}"
+        return f"{loc} ? {' | '.join(l.candidates[:claims.MAX_CANDIDATES])}{more}"
     return f"{loc}   no matching result: {l.context}"
 
 

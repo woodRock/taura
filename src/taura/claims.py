@@ -267,7 +267,8 @@ def match(lits: list[Literal], ledger: Ledger) -> list[Literal]:
     keys = ledger.all_keys()
     for lit in lits:
         cands = sorted(k for k, (_, _, stat, v) in keys.items() if _matches(lit, v, stat))
-        lit.candidates, lit.more = cands[:MAX_CANDIDATES], max(0, len(cands) - MAX_CANDIDATES)
+        lit.candidates = cands  # all of them: an agent must be able to pick any; displays truncate
+        lit.more = max(0, len(cands) - MAX_CANDIDATES)
         if len(cands) == 1:
             key = cands[0]
             result, metric, stat, v = keys[key]

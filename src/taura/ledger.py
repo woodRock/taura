@@ -114,6 +114,9 @@ class Ledger:
             results = spec.pop("results", [])
             if not isinstance(results, list) or not all(isinstance(r, str) for r in results):
                 raise TauraError(f"{where}: results must be a list of result names")
+            if any(c in r for r in results for c in "*?["):  # globs, e.g. ["*"] or ["ticr-*"]
+                names = sorted(load_results(self.code))
+                results = sorted({n for r in results for n in (fnmatch.filter(names, r) or [r])})
             script = spec.pop("script", None)
             bold = spec.pop("bold", None)
             source = spec.pop("source", None)

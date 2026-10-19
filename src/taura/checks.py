@@ -254,7 +254,8 @@ def check_prose(paper: Path, ledger: Ledger) -> list[Finding]:
             fix = f"replace {lit.text} with {lit.suggestion}" + (f" and set {lit.format_hint}" if lit.format_hint else "")
         else:
             more = f" (+{lit.more} more)" if lit.more else ""
-            fix = (f"decide which of {', '.join(lit.candidates)}{more} it is: `taura adopt --todo`, "
+            fix = (f"decide which of {', '.join(lit.candidates[:claims.MAX_CANDIDATES])}{more} it is: "
+                   "`taura adopt --todo`, "
                    f"then `taura resolve {lit.id} KEY --reason ...`")
         out.append(Finding("literal-number", "warn", "paper", lit.location,
                            f"typed number {lit.text} matches a recorded result", fix + ignore))
