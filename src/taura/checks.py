@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import difflib
 import os
+import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from . import claims, gitutil
+from . import claims, decisions, gitutil
 from . import lock as lockmod
 from . import paper as papermod
 from .discovery import LOCK_FILE, Pair
@@ -217,23 +218,69 @@ def check_figures(paper: Path, code: Path) -> list[Finding]:
     return out
 
 
+def _shown(s: str) -> str:
+    """A number as a reader sees it: 4{,}396, 4,396 and 4396 compare equal; 81.2\\% equals 81.2."""
+    return re.sub(r"\{,\}|,|\\%|\$|\s", "", s.replace("$-$", "-"))
+
+
 def check_prose(paper: Path, ledger: Ledger) -> list[Finding]:
     out = []
     try:
         lits = claims.match(claims.literals(paper), ledger)
         seeds = claims.seed_claims(paper, ledger)
+        stored = decisions.load(ledger.code)
+        keys = ledger.all_keys()
     except TauraError:
         return out
+    ignore = "; or add % taura:ignore"
     for lit in lits:
+        d = stored.get(lit.id)
+        if d is not None and d.verdict == "not-a-result":
+            continue
+        if d is not None and d.verdict == "unrecorded":
+            out.append(Finding("unrecorded-result", "warn", "code", lit.location,
+                               f"typed number {lit.text} is a computed result the ledger doesn't have ({d.reason})",
+                               "add it to ledger/results/ (e.g. in the exporter), then `taura resolve "
+                               f"{lit.id} KEY --reason ...`"))
+            continue
+        if d is not None:  # decided: a result, not yet rewritten
+            out.append(Finding("literal-number", "warn", "paper", lit.location,
+                               f"typed number {lit.text} is \\res{{{d.key}}} (decided: {d.reason})",
+                               f"replace {lit.text} with \\res{{{d.key}}}" + ignore))
+            continue
         if not lit.candidates or not lit.strong:
             continue
         if lit.suggestion:
             fix = f"replace {lit.text} with {lit.suggestion}" + (f" and set {lit.format_hint}" if lit.format_hint else "")
         else:
             more = f" (+{lit.more} more)" if lit.more else ""
-            fix = f"replace with \\res{{key}} for one of: {', '.join(lit.candidates)}{more}; see `taura adopt`"
+            fix = (f"decide which of {', '.join(lit.candidates)}{more} it is: `taura adopt --todo`, "
+                   f"then `taura resolve {lit.id} KEY --reason ...`")
         out.append(Finding("literal-number", "warn", "paper", lit.location,
-                           f"typed number {lit.text} matches a recorded result", fix + "; or add % taura:ignore"))
+                           f"typed number {lit.text} matches a recorded result", fix + ignore))
+
+    # Decisions already applied (the number is now \res{key}): does the key print what the paper said?
+    present = {lit.id for lit in lits}
+    published = published_keys(paper)
+    uses: dict[str, set[str]] = {}
+    for use in papermod.res_uses(paper):
+        uses.setdefault(use.file, set()).add(use.key)
+    for d in stored.values():
+        if d.verdict != "result" or d.id in present or d.key not in uses.get(d.file, set()):
+            continue
+        if d.key in published:
+            prints, where = published[d.key], "prints"
+        elif d.key in keys:
+            result, metric, stat, v = keys[d.key]
+            prints, where = ledger.format_for(result, metric, d.key).render(v, stat), "will print"
+        else:
+            continue  # dangling-key covers it
+        if _shown(prints) != _shown(d.literal):
+            out.append(Finding("adopt-mismatch", "warn", "paper", f"{d.file} \\res{{{d.key}}}",
+                               f"\\res{{{d.key}}} {where} {prints}, but the paper said {d.literal} there",
+                               f'set a [format."{d.key}"] entry so it prints as before, or confirm the change '
+                               "is intended (a result changed) and clear it with `taura resolve "
+                               f"{d.id} --clear`"))
     for c in seeds:
         out.append(Finding("seed-claim", "warn", "paper", c.location,
                            f"text claims {c.claimed} {c.what} but \\res{{{c.key}}} comes from n = {c.actual}",

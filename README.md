@@ -101,6 +101,38 @@ marked weak. It is a report only; taura never rewrites the `.tex`.
 
 Add `% taura:ignore` to a line to suppress the heuristic checks on it.
 
+### Deciding what each number is, with an agent
+
+Matching by value can't settle a tie: `0.598` may be both the Joint model's
+drifted-pairs mean and one pair's score. It can't tell a result from a
+coincidence either, such as a Spearman ρ of 0.40 that equals a TIC r to two
+decimals, or a typed result the ledger doesn't have yet. Reading the sentence
+does settle it, so taura hands that judgement to an agent and keeps the
+bookkeeping itself:
+
+```sh
+taura adopt --todo --json      # numbers needing a decision, each with an id, sentence,
+                               # paragraph, section and candidate keys
+taura resolve ID KEY --reason "the sentence is about aug2015 × jul2016"
+taura resolve ID --none --reason "a postcode"            # not a result: stop warning
+taura resolve ID --unrecorded --reason "anchor count"    # a result the ledger lacks
+taura resolve --accept-unique                            # every single strong match
+taura adopt --agent "claude -p"                          # or let an agent CLI decide
+```
+
+Any agent can drive `adopt --todo --json` and `resolve` itself; the shipped
+`AGENTS.md` explains how. `--agent CMD` sends the undecided numbers in batches
+(`--batch`, `--limit`) to any command that reads a prompt on stdin and prints
+JSON. Replies are validated like `resolve`: a "result" must name one of that
+number's candidates. Decisions go to `ledger/adopt.toml` in the code repo,
+keyed by a literal id that survives line moves and neighbouring rewrites. They
+are never asked again.
+
+taura still never edits the `.tex`. The agent replaces each number decided as a
+result with `\res{key}`, and `taura check` then verifies the rewrite:
+`adopt-mismatch` fires if the key prints something other than what the paper
+said, e.g. `12.2` where the text had `12.25`.
+
 ## Checks
 
 | id | severity | meaning |
@@ -116,7 +148,9 @@ Add `% taura:ignore` to a line to suppress the heuristic checks on it.
 | `unused-artifact` | warn | generated file not `\input` or `\includegraphics`'d |
 | `untracked-figure` | warn | `\includegraphics` of a file outside `generated/`: no provenance. If a PDF with the same content exists in the code repo, the fix names it |
 | `stale-source` | warn | a `source` figure is older than its `made_by` script |
-| `literal-number` | warn | a typed number matches a recorded result (3+ decimals, a percentage, or an integer ≥ 100) |
+| `literal-number` | warn | a typed number matches a recorded result (3+ decimals, a percentage, or an integer ≥ 100), or was decided to be one and isn't rewritten yet |
+| `unrecorded-result` | warn | a typed number decided to be a computed result the ledger doesn't have |
+| `adopt-mismatch` | warn | a number rewritten as `\res{key}` now prints differently from what the paper said |
 | `seed-claim` | warn | "N seeds/runs/folds" on the line of (or next to) a `\res` whose result has `n` ≠ N |
 
 `publish` refuses if the paper has uncommitted changes, is behind its upstream

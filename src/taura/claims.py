@@ -7,6 +7,8 @@ the number was typed with, gives the same digits: 0.598 matches 0.59847, 4,396 m
 
 from __future__ import annotations
 
+import hashlib
+import itertools
 import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -35,6 +37,9 @@ REPEATS = re.compile(
     r"\b(?P<n>\d+|" + "|".join(WORDS) + r")\s+(?:random\s+|independent\s+|different\s+)?"
     r"(?P<what>seeds?|runs?|folds?|repeats?|repetitions?|trials?|restarts?)\b", re.I)
 MAX_CANDIDATES = 8
+SECTION = re.compile(r"\\(?:sub)*section\*?\s*(?:\[[^\]]*\])?\s*\{([^{}]*)\}")
+SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z\\(])")
+PARAGRAPH_CHARS = 900
 
 
 def _mask_args(line: str) -> str:
@@ -83,6 +88,13 @@ class Literal:
     suggestion: str | None = None  # \res{key} when exactly one candidate
     renders_as: str | None = None  # what \res{key} prints with the current formats
     format_hint: str | None = None  # a [format] entry that would make it print as typed
+    # Context for whoever decides (a person or an agent): where the number sits in the text.
+    id: str = ""  # stable across line moves: hash of file, literal and surrounding text
+    sentence: str = ""
+    paragraph: str = ""
+    section: str = ""
+    in_caption: bool = False
+    options: list[dict] = field(default_factory=list)  # candidate details, filled by match()
 
     @property
     def location(self) -> str:
@@ -123,18 +135,83 @@ def document_lines(paper: Path):
                 yield rel, i, code, raw
 
 
+_VOLATILE = re.compile(r"\\" + RES_CMD + r"\{[^{}]*\}|\d+(?:(?:[.,]|\{,\})\d+)*")
+ID_WORDS = 6
+
+
+def literal_id(file: str, text: str, before: str, after: str) -> str:
+    """Stable id: the file, the number, and the words around it with every number and \\res{} collapsed.
+
+    So replacing a *neighbouring* number with \\res{key} (or a line moving) doesn't change it."""
+    left = _VOLATILE.sub("#", before).split()[-ID_WORDS:]
+    right = _VOLATILE.sub("#", after).split()[:ID_WORDS]
+    key = "\0".join([file, text, " ".join(left), " ".join(right)])
+    return hashlib.sha256(key.encode()).hexdigest()[:10]
+
+
+def _paragraphs(lines: list[tuple[int, str]]) -> list[list[tuple[int, str]]]:
+    """Group (line, prose) into paragraphs at blank lines and environment boundaries."""
+    paras: list[list[tuple[int, str]]] = [[]]
+    for i, code in lines:
+        stripped = code.strip()
+        boundary = not stripped or stripped.startswith((r"\begin{", r"\end{", r"\section", r"\subsection",
+                                                        r"\subsubsection", r"\paragraph"))
+        if boundary and paras[-1]:
+            paras.append([])
+        if stripped:
+            paras[-1].append((i, code))
+            if boundary:
+                paras.append([])
+    return [p for p in paras if p]
+
+
 def literals(paper: Path) -> list[Literal]:
-    out = []
+    by_file: dict[str, list[tuple[int, str, str]]] = {}
     for rel, i, code, raw in document_lines(paper):
-        if IGNORE in raw:
-            continue
-        masked = _mask_args(code)
-        for m in NUMBER.finditer(masked):
-            text = code[m.start():m.end()].strip()
-            value = re.sub(r"\{,\}|,", "", m.group("num"))
-            ctx = code[max(0, m.start() - 40):m.end() + 40].strip()
-            out.append(Literal(rel, i, m.start() + 1, text, value, bool(m.group("pct")), ctx))
+        by_file.setdefault(rel, []).append((i, code, raw))
+    out = []
+    for rel, lines in by_file.items():
+        raws = {i: raw for i, _, raw in lines}
+        section = ""
+        for para in _paragraphs([(i, code) for i, code, _ in lines]):
+            text, starts = "", {}
+            for i, code in para:
+                starts[i] = len(text)
+                text += code.strip() + " "
+            bounds = [0, *(m.end() for m in SENTENCE_END.finditer(text)), len(text)]
+            sentences = list(itertools.pairwise(bounds))
+            for i, code in para:
+                m = SECTION.search(code)
+                if m:
+                    section = m.group(1).strip()
+                if IGNORE in raws[i]:
+                    continue
+                lead = len(code) - len(code.lstrip())
+                for n in NUMBER.finditer(_mask_args(code)):
+                    lit_text = code[n.start():n.end()].strip()
+                    value = re.sub(r"\{,\}|,", "", n.group("num"))
+                    ctx = code[max(0, n.start() - 40):n.end() + 40].strip()
+                    pos = starts[i] + n.start() - lead
+                    sent = next((text[a:b] for a, b in sentences if a <= pos < b), text)
+                    lo = max(0, pos - PARAGRAPH_CHARS // 2)
+                    out.append(Literal(
+                        rel, i, n.start() + 1, lit_text, value, bool(n.group("pct")), ctx,
+                        id=literal_id(rel, lit_text, code[:n.start()], code[n.end():]), sentence=sent.strip(),
+                        paragraph=("…" if lo else "") + text[lo:lo + PARAGRAPH_CHARS].strip(),
+                        section=section, in_caption=r"\caption" in text[:pos],
+                    ))
+    _dedupe_ids(out)
     return out
+
+
+def _dedupe_ids(lits: list[Literal]) -> None:
+    """The same number in the same surrounding text twice: number the repeats."""
+    seen: dict[str, int] = {}
+    for lit in lits:
+        k = seen.get(lit.id, 0)
+        seen[lit.id] = k + 1
+        if k:
+            lit.id = f"{lit.id}-{k + 1}"
 
 
 def _matches(lit: Literal, v: float | int, stat: str | None) -> bool:
@@ -172,6 +249,12 @@ def match(lits: list[Literal], ledger: Ledger) -> list[Literal]:
             lit.suggestion = rf"\{RES_CMD}{{{key}}}"
             lit.renders_as = ledger.format_for(result, metric, key).render(v, stat)
             lit.format_hint = _format_hint(lit, key, lit.renders_as)
+        for key in lit.candidates:
+            result, metric, stat, v = keys[key]
+            lit.options.append({
+                "key": key, "value": v, "renders_as": ledger.format_for(result, metric, key).render(v, stat),
+                "result_label": ledger.result(result).get("label", result), "metric": metric, "stat": stat,
+            })
     return lits
 
 

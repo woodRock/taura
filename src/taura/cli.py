@@ -8,7 +8,7 @@ import sys
 from dataclasses import asdict
 from pathlib import Path
 
-from . import NAME, __version__, claims
+from . import NAME, __version__, claims, decisions
 from . import lock as lockmod
 from .build import build
 from .checks import run_checks
@@ -122,30 +122,106 @@ def cmd_status(args) -> int:
     return 1 if counts else 0
 
 
+def _adopt_line(l, d) -> str:
+    loc = f"{l.location:<22} {l.id:<12} {l.text:<9}"
+    if d is not None:
+        what = f"\\res{{{d.key}}}" if d.verdict == "result" else d.verdict
+        return f"{loc} ✓ {what}  ({d.by or 'by hand'}: {d.reason})"
+    if l.suggestion:
+        note = f"  (prints {l.renders_as}; set {l.format_hint})" if l.format_hint else ""
+        weak = "" if l.strong else "  [weak: few digits, could be a coincidence]"
+        return f"{loc} → {l.suggestion}{note}{weak}"
+    if l.candidates:
+        more = f" (+{l.more} more)" if l.more else ""
+        return f"{loc} ? {' | '.join(l.candidates)}{more}"
+    return f"{loc}   no matching result: {l.context}"
+
+
 def cmd_adopt(args) -> int:
     pair = _pair(args)
     lits = claims.match(claims.literals(pair.require_paper()), Ledger(pair.code))
-    shown = lits if args.all else [l for l in lits if l.candidates]
-    unique = sum(bool(l.suggestion) for l in lits)
-    ambiguous = sum(len(l.candidates) > 1 for l in lits)
-    summary = {"literals": len(lits), "unique": unique, "ambiguous": ambiguous,
-               "unmatched": len(lits) - unique - ambiguous}
-    lines = []
-    for l in shown:
-        if l.suggestion:
-            note = f"  (prints {l.renders_as}; set {l.format_hint})" if l.format_hint else ""
-            weak = "" if l.strong else "  [weak: few digits, could be a coincidence]"
-            lines.append(f"{l.location:<24} {l.text:<10} → {l.suggestion}{note}{weak}")
-        elif l.candidates:
-            more = f" (+{l.more} more)" if l.more else ""
-            lines.append(f"{l.location:<24} {l.text:<10} ? {' | '.join(l.candidates)}{more}")
+    decided = decisions.apply_to(lits, decisions.load(pair.code))
+    problems: list[str] = []
+
+    if args.agent:
+        todo = [l for l in lits if l.id not in decided and decisions.needs_agent(l, args.include_unique)]
+        todo = todo[:args.limit] if args.limit else todo
+        log = (lambda m: None) if args.json else (lambda m: print(m, file=sys.stderr))
+        new, problems = decisions.ask_agent(args.agent, todo, batch=args.batch, log=log)
+        if new:
+            stored = decisions.load(pair.code)
+            stored.update({d.id: d for d in new})
+            decisions.save(pair.code, stored)
+            decided = decisions.apply_to(lits, stored)
+
+    if args.todo:
+        shown = [l for l in lits if l.id not in decided and decisions.needs_agent(l, args.include_unique)]
+    elif args.all:
+        shown = lits
+    else:
+        shown = [l for l in lits if l.candidates or l.id in decided]
+
+    verdicts = {v: sum(d.verdict == v for d in decided.values()) for v in decisions.VERDICTS}
+    pending = [l for l in lits if l.id not in decided]
+    summary = {
+        "literals": len(lits),
+        "unique": sum(bool(l.suggestion) for l in pending),
+        "ambiguous": sum(len(l.candidates) > 1 for l in pending),
+        "unmatched": sum(not l.candidates for l in pending),
+        "decided": verdicts,
+        "needs_decision": sum(decisions.needs_agent(l, False) for l in pending),
+    }
+    lines = [_adopt_line(l, decided.get(l.id)) for l in shown]
+    lines.append(
+        f"{summary['literals']} typed numbers. Undecided: {summary['unique']} match one result, "
+        f"{summary['ambiguous']} ambiguous, {summary['unmatched']} unmatched. Decided: "
+        + ", ".join(f"{n} {v}" for v, n in verdicts.items()))
+    if not args.all and not args.todo:
+        lines.append("--todo lists what needs a decision (with ids); --all lists everything")
+    lines.append("report only: taura never edits the .tex; replace numbers with \\res{key} yourself")
+    lines += [f"problem: {p}" for p in problems]
+    data = {"literals": [l.to_dict() | {"decision": decided[l.id].__dict__ if l.id in decided else None}
+                         for l in shown],
+            "summary": summary, "problems": problems}
+    _emit(args, data, "\n".join(lines))
+    return 1 if problems or summary["unique"] or summary["ambiguous"] else 0
+
+
+def cmd_resolve(args) -> int:
+    pair = _pair(args)
+    led = Ledger(pair.code)
+    lits = claims.match(claims.literals(pair.require_paper()), led)
+    stored = decisions.load(pair.code)
+    by = args.by or ""
+    changed = []
+    if args.accept_unique:
+        for l in lits:
+            if l.suggestion and l.strong and l.id not in stored:
+                d = decisions.make(l, "result", l.candidates[0], "the only recorded result with this value", by or NAME)
+                stored[l.id] = d
+                changed.append(d)
+    else:
+        if not args.id:
+            raise TauraError("give a literal id (from `taura adopt --todo`), or --accept-unique")
+        lit = next((l for l in lits if l.id == args.id), None)
+        if lit is None:
+            raise TauraError(f"no typed number with id {args.id} in the paper (ids come from `taura adopt`)")
+        if args.clear:
+            stored.pop(lit.id, None)
         else:
-            lines.append(f"{l.location:<24} {l.text:<10}   no matching result: {l.context}")
-    lines.append(f"{summary['literals']} typed numbers: {unique} match one result, {ambiguous} ambiguous, "
-                 f"{summary['unmatched']} unmatched" + ("" if args.all else " (--all lists them)"))
-    lines.append("report only: taura never edits the .tex; replace numbers with \\res{key} by hand")
-    _emit(args, {"literals": [l.to_dict() for l in shown], "summary": summary}, "\n".join(lines))
-    return 1 if unique or ambiguous else 0
+            verdict = "not-a-result" if args.none else "unrecorded" if args.unrecorded else "result"
+            if verdict == "result" and not args.key:
+                raise TauraError("give the result KEY, or --none / --unrecorded")
+            d = decisions.make(lit, verdict, args.key or "", args.reason or "", by)
+            stored[lit.id] = d
+            changed.append(d)
+    decisions.save(pair.code, stored)
+    lines = [f"{d.id} {d.literal} → " + (f"\\res{{{d.key}}}" if d.verdict == "result" else d.verdict) for d in changed]
+    if args.clear:
+        lines.append(f"cleared {args.id}")
+    lines.append(f"recorded in {decisions.DECISIONS_FILE}")
+    _emit(args, {"decided": [d.__dict__ for d in changed], "file": decisions.DECISIONS_FILE}, "\n".join(lines))
+    return 0
 
 
 # ---- parser ----------------------------------------------------------------------
@@ -182,7 +258,28 @@ def parser() -> argparse.ArgumentParser:
     s = sub.add_parser("adopt", parents=[common],
                        help="list numbers typed into the paper and the result keys they match (report only)")
     s.add_argument("--all", action="store_true", help="also list numbers that match no result")
+    s.add_argument("--todo", action="store_true",
+                   help="only undecided numbers that need judgement: ties, weak matches, unmatched")
+    s.add_argument("--agent", metavar="CMD",
+                   help='ask an agent CLI to decide the --todo numbers from context, e.g. --agent "claude -p" '
+                        "(prompt on stdin, JSON reply on stdout); decisions go to ledger/adopt.toml")
+    s.add_argument("--batch", type=int, default=20, help="numbers per agent call (default 20)")
+    s.add_argument("--limit", type=int, metavar="N", help="with --agent, ask about at most N numbers this run")
+    s.add_argument("--include-unique", action="store_true",
+                   help="with --todo/--agent, also include numbers with one strong match")
     s.set_defaults(func=cmd_adopt)
+    s = sub.add_parser("resolve", parents=[common],
+                       help="record what a typed number is: a result key, --none, or --unrecorded")
+    s.add_argument("id", nargs="?", help="literal id from `taura adopt`")
+    s.add_argument("key", nargs="?", help="the result key it reports")
+    s.add_argument("--none", action="store_true", help="not a result (year, setting, sample size...)")
+    s.add_argument("--unrecorded", action="store_true", help="a computed result missing from the ledger")
+    s.add_argument("--reason", help="one sentence: what in the text decided it (required)")
+    s.add_argument("--by", help="who decided (an agent's name, or yours)")
+    s.add_argument("--clear", action="store_true", help="forget the decision for this id")
+    s.add_argument("--accept-unique", action="store_true",
+                   help="record every undecided number with exactly one strong match as that result")
+    s.set_defaults(func=cmd_resolve)
     return p
 
 
