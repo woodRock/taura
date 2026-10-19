@@ -47,6 +47,7 @@ def dumps(data: dict) -> str:
     out: list[str] = []
 
     def emit(table: dict, prefix: list[str]) -> None:
+        table = {k: v for k, v in table.items() if v is not None}  # TOML has no null: absent means unset
         scalars = [(k, v) for k, v in table.items() if not isinstance(v, dict)]
         tables = [(k, v) for k, v in table.items() if isinstance(v, dict)]
         if prefix and (scalars or not tables):

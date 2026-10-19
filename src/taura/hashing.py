@@ -33,9 +33,45 @@ _PDF_VOLATILE = [
 ]
 
 
+def _npz_hash(data: bytes) -> str | None:
+    """Numeric arrays of an .npz (name, dtype, shape, values), ignoring text arrays: provenance
+    strings, revisions and paths that change on every run without changing the numbers."""
+    import ast
+    import io
+    import zipfile
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(data))
+    except zipfile.BadZipFile:
+        return None
+    h = hashlib.sha256()
+    for name in sorted(zf.namelist()):
+        raw = zf.read(name)
+        if not (name.endswith(".npy") and raw.startswith(b"\x93NUMPY")):
+            return None
+        major = raw[6]
+        hlen_size = 2 if major == 1 else 4
+        hlen = int.from_bytes(raw[8:8 + hlen_size], "little")
+        start = 8 + hlen_size
+        try:
+            header = ast.literal_eval(raw[start:start + hlen].decode("latin1"))
+        except (ValueError, SyntaxError):
+            return None
+        descr = header.get("descr")
+        if isinstance(descr, str) and descr.lstrip("<>|=")[:1] in ("U", "S", "O"):
+            continue  # text or objects: metadata
+        h.update(f"{name}\0{descr}\0{header.get('shape')}\0{header.get('fortran_order')}\0".encode())
+        h.update(raw[start + hlen:])
+    return "npz-sha256:" + h.hexdigest()
+
+
 def content_hash(path: Path) -> str:
-    """Hash of what a file shows: for PDFs, the bytes minus volatile metadata; otherwise the bytes."""
+    """Hash of what a file shows: for PDFs, the bytes minus volatile metadata; for .npz files, the
+    numeric arrays (text arrays such as provenance strings are metadata); otherwise the bytes."""
     data = Path(path).read_bytes()
+    if Path(path).suffix == ".npz" and data.startswith(b"PK"):
+        h = _npz_hash(data)
+        if h:
+            return h
     if data.startswith(b"%PDF"):
         for pat in _PDF_VOLATILE:
             data = pat.sub(b"", data)

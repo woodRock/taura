@@ -375,11 +375,11 @@ def check_runs(ledger: Ledger, lock: dict) -> list[Finding]:
                                "fetch or restore that commit (was it rebased away?); a snapshot from gpu-spooler "
                                "sync lives under refs/gpu-spooler/ on the server"))
     # what the paper depends on: published results and published figures, with the content they hold
-    published: list[tuple[str, list[str] | None, str | None]] = []
+    published: list[tuple[str, list[str] | None, object]] = []
     for name in lock["results"]:
         r = ledger.results.get(name)
         if r is not None:
-            published.append((f"result {name}", r.get("runs"), (r.get("source") or {}).get("hash")))
+            published.append((f"result {name}", r.get("runs"), runsmod.source_contents(code, r.get("source"))))
     for name, entry in lock["artifacts"].items():
         if entry.get("kind") == "figure":
             published.append((f"figure {name}", None, entry.get("hash")))

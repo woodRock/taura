@@ -12,7 +12,7 @@ import sys
 from dataclasses import asdict
 from pathlib import Path
 
-from . import NAME, __version__, claims, decisions, gitutil, runs
+from . import NAME, __version__, claims, decisions, envprobe, gitutil, runs
 from . import lock as lockmod
 from . import trace as tracemod
 from .build import build
@@ -270,6 +270,9 @@ def cmd_run(args) -> int:
     cwd = Path(args.C).expanduser().resolve() if args.C else Path.cwd()
     run_id = args.id or runs.new_id()
     rec = runs.start_record(code, run_id, argv, cwd=cwd, runner=NAME) | runs.git_state(code)
+    python = envprobe.interpreter(argv)
+    if python:
+        rec["env"] = envprobe.probe(python, cwd)
     where = runs.save(code, rec)
     if rec["dirty"]:
         print(f"{NAME}: note: the code repo has uncommitted changes; run {run_id} is recorded as dirty",
@@ -322,14 +325,50 @@ def cmd_record(args) -> int:
         rec["status"] = "done" if args.exit_code == 0 else "failed"
     if args.outputs:
         rec["outputs"] = dict(rec.get("outputs") or {}) | runs.hash_outputs(code, args.outputs)
+    if args.env_json:
+        try:
+            rec["env"] = envprobe.finish(json.loads(Path(args.env_json).read_text()))
+        except (OSError, json.JSONDecodeError) as e:
+            raise TauraError(f"--env-json {args.env_json}: {e}") from None
     where = runs.save(code, rec)
     _emit(args, rec, f"{'recorded' if new else 'updated'} run {args.id} → {where.relative_to(code)}")
     return 0
 
 
+def _diff_lines(d: dict, a: str, b: str) -> list[str]:
+    lines = [f"{a}  vs  {b}"]
+    for k, v in d.items():
+        if k in ("data", "env", "outputs"):
+            continue
+        lines.append(f"  {k:<12} {v[0]}  →  {v[1]}")
+    for name, (x, y) in (d.get("data") or {}).items():
+        lines.append(f"  data {name:<7} {x}  →  {y}")
+    env = d.get("env") or {}
+    for k in ("python", "platform", "gpus", "executable", "recorded"):
+        if k in env:
+            lines.append(f"  env {k:<8} {env[k][0]}  →  {env[k][1]}")
+    for name, (x, y) in (env.get("packages") or {}).items():
+        lines.append(f"  package {name:<20} {x or '(none)'}  →  {y or '(none)'}")
+    o = d["outputs"]
+    lines.append(f"  outputs      {len(o['identical'])} identical, {len(o['different'])} different, "
+                 f"{len(o['only_in_first'])} only in {a}, {len(o['only_in_second'])} only in {b}")
+    lines += [f"    different: {n}" for n in o["different"][:20]]
+    if len(d) == 1 and not o["different"] and not o["only_in_first"] and not o["only_in_second"]:
+        lines.append("  no differences")
+    return lines
+
+
 def cmd_runs(args) -> int:
     code = _code(args)
     recs = runs.load_all(code)
+    if args.diff:
+        a, b = args.diff
+        missing = [r for r in (a, b) if r not in recs]
+        if missing:
+            raise TauraError(f"no run record for {', '.join(missing)}; see `taura runs`")
+        d = runs.diff(recs[a], recs[b])
+        _emit(args, {"a": a, "b": b, "diff": d}, "\n".join(_diff_lines(d, a, b)))
+        return 0
     lines = [f"{r.get('id'):<34} {r.get('status', '?'):<8} {(r.get('commit') or '?')[:7]}"
              f"{'+dirty' if r.get('dirty') else '      '} {(r.get('host') or '?'):<14} {r.get('command', '')[:70]}"
              for r in recs.values()]
@@ -435,8 +474,11 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--finished", help="finish time (ISO or epoch seconds)")
     s.add_argument("--exit-code", type=int, help="its exit code (marks it finished)")
     s.add_argument("--outputs", nargs="*", metavar="PATH", help="output files or directories, hashed now")
+    s.add_argument("--env-json", metavar="FILE", help="the run's environment, as printed by taura's probe")
     s.set_defaults(func=cmd_record)
-    s = sub.add_parser("runs", parents=[common], help="list run records")
+    s = sub.add_parser("runs", parents=[common], help="list run records, or --diff two of them")
+    s.add_argument("--diff", nargs=2, metavar=("RUN_A", "RUN_B"),
+                   help="what differs: commit, command, config, seed, host, data, environment, outputs")
     s.set_defaults(func=cmd_runs)
     s = sub.add_parser("tui", parents=[common],
                        help="browse papers, claims and their provenance (read-only; needs taura[tui])")

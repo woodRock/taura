@@ -158,6 +158,11 @@ def _run_lines(recs: list[dict] | None, indent: str) -> list[str]:
         seed = f"seed {rr['seed']}" if rr.get("seed") is not None else ""
         if cfg or seed:
             out.append(f"{indent}           " + "  ".join(x for x in (cfg, seed) if x))
+        env = rr.get("env") or {}
+        if env:
+            gpu = f", {len(env['gpus'])} GPU(s): {env['gpus'][0].split(',')[1].strip()}" if env.get("gpus") else ""
+            out.append(f"{indent}           env python {env.get('python', '?')} on {env.get('machine', '?')}{gpu}, "
+                       f"{len(env.get('packages', {}))} packages {_short(env.get('hash'))}")
         for name, d in (rr.get("data") or {}).items():
             label = f" {d['label']}" if d.get("label") else ""
             where = f", hashed on {d['hashed_on']}, not where it ran" if d.get("hashed_on") else ""

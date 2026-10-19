@@ -120,8 +120,8 @@ class Project:
     def runs(self) -> runsmod.Index:
         return runsmod.Index(self.code)
 
-    def runs_for(self, explicit: list[str] | None, content: str | None) -> list[dict]:
-        return [self.runs.summary(rid, how) for rid, how in self.runs.linked(explicit, content)]
+    def runs_for(self, explicit: list[str] | None, contents) -> list[dict]:
+        return [self.runs.summary(rid, how) for rid, how in self.runs.linked(explicit, contents)]
 
     @cached_property
     def report(self) -> Report:
@@ -216,7 +216,7 @@ class Project:
         for k in ("produced_by", "created", "runs", "source"):
             if k in r:
                 info[k] = r[k]
-        info["run_records"] = self.runs_for(r.get("runs"), (r.get("source") or {}).get("hash"))
+        info["run_records"] = self.runs_for(r.get("runs"), runsmod.source_contents(self.code, r.get("source")))
         if metric is not None:
             v = r["metrics"].get(metric)
             info["key"] = "/".join(x for x in (name, metric, stat) if x)
@@ -234,7 +234,8 @@ class Project:
         out = []
         if self.ledger is not None:
             for name, r in self.ledger.results.items():
-                if any(x == rid for x, _ in self.runs.linked(r.get("runs"), (r.get("source") or {}).get("hash"))):
+                contents = runsmod.source_contents(self.code, r.get("source"))
+                if any(x == rid for x, _ in self.runs.linked(r.get("runs"), contents)):
                     out.append(f"result {name}" + ("" if name in self.lock["results"] else " (not published)"))
         for name, entry in self.lock["artifacts"].items():
             if entry.get("kind") == "figure" and any(x == rid for x, _ in self.runs.linked(None, entry.get("hash"))):

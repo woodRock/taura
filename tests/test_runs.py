@@ -183,3 +183,53 @@ def test_provenance_only_change_is_a_warning(env, capsys):
     (code / "ledger/results/mba.json").write_text(json.dumps(mba))
     rc, r = run(capsys, "-C", str(code), "check")
     assert any(f["id"] == "stale-artifact" for f in r["findings"])
+
+
+def _npy(descr: str, shape: tuple, data: bytes) -> bytes:
+    """A .npy file by hand (taura has no numpy dependency)."""
+    header = repr({"descr": descr, "fortran_order": False, "shape": shape}).encode("latin1")
+    header += b" " * ((64 - (10 + len(header) + 1) % 64) % 64) + b"\n"
+    return b"\x93NUMPY\x01\x00" + len(header).to_bytes(2, "little") + header + data
+
+
+def _npz(path: Path, **arrays: bytes) -> None:
+    import zipfile
+    with zipfile.ZipFile(path, "w") as z:
+        for name, npy in arrays.items():
+            z.writestr(f"{name}.npy", npy)
+
+
+def test_npz_content_hash_ignores_text_arrays(tmp_path):
+    warps = _npy("<f4", (2,), b"\x00\x00\xc0?\x00\x00\x00@")  # [1.5, 2.0]
+    _npz(tmp_path / "a.npz", warps=warps, rev=_npy("<U9", (), "6743cf8 ".encode("utf-32-le")[:36]))
+    _npz(tmp_path / "b.npz", warps=warps, rev=_npy("<U12", (), "156cfe2 ab  ".encode("utf-32-le")))
+    _npz(tmp_path / "c.npz", warps=_npy("<f4", (2,), b"\x00\x00\xc0?\x00\x00\x40@"), rev=_npy("<U1", (), b"x\0\0\0"))
+    a, b, c = (content_hash(tmp_path / f"{n}.npz") for n in "abc")
+    assert a == b and a != c and a.startswith("npz-sha256:")
+    assert (tmp_path / "a.npz").read_bytes() != (tmp_path / "b.npz").read_bytes()
+
+
+def test_environment_and_diff(env, capsys, tmp_path):
+    code, _ = prepare(env, capsys)
+    rc, first = taura_run(capsys, code)
+    e = first["env"]
+    assert e["python"] == ".".join(map(str, sys.version_info[:3])) and e["hash"].startswith("sha256:")
+    assert "packages" in e and isinstance(e["gpus"], list)
+    rc, second = taura_run(capsys, code, seed="4")
+    rc, d = run(capsys, "-C", str(code), "runs", "--diff", first["id"], second["id"])
+    assert d["diff"]["seed"] == [3, 4] and "env" not in d["diff"]
+    assert d["diff"]["outputs"]["different"] == ["results/out.json"]
+
+    # a run elsewhere reports its environment (gpu-spooler passes the probe's output)
+    other = dict(e, python="3.12.15", gpus=["0, NVIDIA A100, 550.1"],
+                 packages={**e["packages"], "warpalign": "3.0.1 editable @6743cf8de37a"})
+    other.pop("hash")
+    (tmp_path / "env.json").write_text(json.dumps(other))
+    rc, rec = run(capsys, "-C", str(code), "record", "elsewhere-1", "--event", "start", "--host", "cuda06",
+                  "--command", "python3 train.py --seed 3", "--env-json", str(tmp_path / "env.json"))
+    assert rec["env"]["hash"] != e["hash"] and rec["env"]["gpus"] == ["0, NVIDIA A100, 550.1"]
+    rc, d = run(capsys, "-C", str(code), "runs", "--diff", first["id"], "elsewhere-1")
+    assert d["diff"]["env"]["python"][1] == "3.12.15"
+    assert d["diff"]["env"]["packages"]["warpalign"][1] == "3.0.1 editable @6743cf8de37a"
+    rc, t = run(capsys, "-C", str(code), "runs", "--diff", first["id"], "nope")
+    assert rc == 2

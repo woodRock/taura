@@ -322,6 +322,41 @@ def start_record(code: Path, run_id: str, argv: list[str], command: str | None =
     return rec
 
 
+def source_contents(code: Path, source: dict | None) -> list[str]:
+    """The hashes a result's source file may have been recorded under: the exporter's, and its content
+    hash now (outputs are recorded by content hash, which ignores e.g. provenance strings in an npz)."""
+    source = source or {}
+    out = [source["hash"]] if source.get("hash") else []
+    f = code / source["path"] if source.get("path") else None
+    if f is not None and f.is_file():
+        out.append(content_hash(f))
+    return out
+
+
+def diff(a: dict, b: dict) -> dict:
+    """What differs between two run records."""
+    from . import envprobe
+    out: dict = {}
+    for k in ("commit", "base_commit", "dirty", "command", "config_path", "config_hash", "seed", "host", "gpus",
+              "exit_code"):
+        if a.get(k) != b.get(k):
+            out[k] = (a.get(k), b.get(k))
+    data = {n: (a.get("data", {}).get(n, {}).get("hash"), b.get("data", {}).get(n, {}).get("hash"))
+            for n in sorted(set(a.get("data") or {}) | set(b.get("data") or {}))}
+    data = {n: v for n, v in data.items() if v[0] != v[1]}
+    if data:
+        out["data"] = data
+    env = envprobe.diff(a.get("env"), b.get("env"))
+    if env or bool(a.get("env")) != bool(b.get("env")):
+        out["env"] = env or {"recorded": (bool(a.get("env")), bool(b.get("env")))}
+    oa, ob = a.get("outputs") or {}, b.get("outputs") or {}
+    names = sorted(set(oa) | set(ob))
+    out["outputs"] = {"identical": [n for n in names if oa.get(n) == ob.get(n)],
+                      "different": [n for n in names if n in oa and n in ob and oa[n] != ob[n]],
+                      "only_in_first": [n for n in names if n not in ob], "only_in_second": [n for n in names if n not in oa]}
+    return out
+
+
 # ---- linking results to runs --------------------------------------------------------------
 
 
@@ -343,11 +378,13 @@ class Index:
             for h in (rec.get("outputs") or {}).values():
                 self.by_hash.setdefault(h, []).append(rid)
 
-    def linked(self, explicit: list[str] | None, content: str | None) -> list[tuple[str, str]]:
-        """(run id, how) for runs named explicitly or that wrote this content, newest first."""
+    def linked(self, explicit: list[str] | None, contents) -> list[tuple[str, str]]:
+        """(run id, how) for runs named explicitly or that wrote this content (a hash, or several
+        hashes of the same file), newest first."""
         out = {rid: "explicit" for rid in explicit or []}
-        for rid in self.by_hash.get(content or "", []):
-            out.setdefault(rid, "output hash")
+        for content in [contents] if isinstance(contents, str) else (contents or []):
+            for rid in self.by_hash.get(content or "", []):
+                out.setdefault(rid, "output hash")
         return sorted(out.items(), key=lambda kv: self.records.get(kv[0], {}).get("started", ""), reverse=True)
 
     def summary(self, rid: str, how: str) -> dict:
@@ -355,5 +392,5 @@ class Index:
         if rec is None:
             return {"id": rid, "link": how, "missing": True}
         keys = ("status", "started", "finished", "exit_code", "commit", "base_commit", "dirty", "command",
-                "config_path", "config_hash", "seed", "host", "gpus", "spooler_job", "runner", "data")
+                "config_path", "config_hash", "seed", "host", "gpus", "spooler_job", "runner", "data", "env")
         return {"id": rid, "link": how} | {k: rec[k] for k in keys if k in rec}
