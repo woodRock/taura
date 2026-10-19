@@ -137,6 +137,9 @@ def test_resolve_by_hand_and_mismatch(env, capsys, tmp_path):
     rc, r = run(capsys, "-C", str(code), "check")
     assert not any(f["id"] == "adopt-mismatch" for f in r["findings"])
 
+    # a decision for a number already rewritten can still be cleared (by id)
+    rc, r = run(capsys, "-C", str(code), "resolve", lit["id"], "--clear")
+    assert rc == 0 and lit["id"] not in (code / "ledger/adopt.toml").read_text()
     rc, r = run(capsys, "-C", str(code), "resolve", "--accept-unique")
     assert rc == 0  # nothing strong-unique left; still fine
     rc, r = run(capsys, "-C", str(code), "resolve", "nope")

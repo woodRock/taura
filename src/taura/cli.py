@@ -222,12 +222,14 @@ def cmd_resolve(args) -> int:
     else:
         if not args.id:
             raise TauraError("give a literal id (from `taura adopt --todo`), or --accept-unique")
-        lit = next((l for l in lits if l.id == args.id), None)
-        if lit is None:
-            raise TauraError(f"no typed number with id {args.id} in the paper (ids come from `taura adopt`)")
-        if args.clear:
-            stored.pop(lit.id, None)
+        if args.clear:  # works for numbers already rewritten as \\res too: the decision is stored by id
+            if args.id not in stored:
+                raise TauraError(f"no decision with id {args.id} (ids come from `taura adopt` or `check`)")
+            stored.pop(args.id)
         else:
+            lit = next((l for l in lits if l.id == args.id), None)
+            if lit is None:
+                raise TauraError(f"no typed number with id {args.id} in the paper (ids come from `taura adopt`)")
             verdict = "not-a-result" if args.none else "unrecorded" if args.unrecorded else "result"
             if verdict == "result" and not args.key:
                 raise TauraError("give the result KEY, or --none / --unrecorded")
