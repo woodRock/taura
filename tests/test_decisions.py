@@ -173,3 +173,33 @@ def test_small_counts_are_candidates_but_not_strong():
     assert not lit.strong
     big = Literal(file="main.tex", line=1, col=0, text="240", value="240", percent=False, context="")
     assert big.strong and _matches(big, 240, "worlds")
+
+
+def test_shown_ignores_a_printed_plus_sign():
+    from taura.checks import _shown
+
+    assert _shown("+0.0006") == _shown("0.0006") and _shown("$-$0.0040") == "-0.0040"
+    assert _shown("4{,}396") == "4396" and _shown(r"81.2\%") == "81.2"
+
+
+def test_rewriting_a_signed_neighbour_keeps_the_id_and_old_ids_still_apply(tmp_path):
+    from taura import claims, decisions
+
+    before = r"was $-0.0020\text{ min}$ at 0\% corruption and $+0.0006\text{ min}$ at 30\% corruption."
+    after = r"was $\res{a/b/c}\text{ min}$ at 0\% corruption and $\res{a/d/c}\text{ min}$ at 30\% corruption."
+    ids = {}
+    for name, text in (("before", before), ("after", after)):
+        (tmp_path / "main.tex").write_text("\\begin{document}\n" + text + "\n\\end{document}\n")
+        ids[name] = {lit.text: (lit.id, lit.legacy_id) for lit in claims.literals(tmp_path)}
+    assert ids["before"][r"0\%"][0] == ids["after"][r"0\%"][0]
+    assert ids["before"][r"30\%"][0] == ids["after"][r"30\%"][0]
+
+    # a decision stored under the old scheme's id is found, and moved to the current id
+    (tmp_path / "ledger").mkdir()
+    (tmp_path / "main.tex").write_text("\\begin{document}\n" + before + "\n\\end{document}\n")
+    lits = claims.literals(tmp_path)
+    old = next(lit for lit in lits if lit.text == r"0\%")
+    assert old.legacy_id != old.id  # the signed neighbour made the old scheme's id differ
+    d = decisions.Decision(old.legacy_id, "main.tex", r"0\%", "", "not-a-result", reason="a rate")
+    decisions.save(tmp_path, {d.id: d})
+    assert set(decisions.load(tmp_path, lits)) == {old.id}

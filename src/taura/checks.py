@@ -220,8 +220,10 @@ def check_figures(paper: Path, code: Path) -> list[Finding]:
 
 
 def _shown(s: str) -> str:
-    """A number as a reader sees it: 4{,}396, 4,396 and 4396 compare equal; 81.2\\% equals 81.2."""
-    return re.sub(r"\{,\}|,|\\%|\$|\s", "", s.replace("$-$", "-"))
+    """A number as a reader sees it: 4{,}396, 4,396 and 4396 compare equal; 81.2\\% equals 81.2. A
+    leading + is dropped: the typed literal never includes it (a typed "+0.0006" is the number 0.0006
+    after a sign), while a format with sign = true prints it."""
+    return re.sub(r"\{,\}|,|\\%|\$|\s", "", s.replace("$-$", "-")).lstrip("+")
 
 
 def check_prose(paper: Path, ledger: Ledger) -> list[Finding]:
@@ -229,7 +231,7 @@ def check_prose(paper: Path, ledger: Ledger) -> list[Finding]:
     try:
         lits = claims.match(claims.literals(paper), ledger)
         seeds = claims.seed_claims(paper, ledger)
-        stored = decisions.load(ledger.code)
+        stored = decisions.load(ledger.code, lits)
         ledger.all_keys()  # surfaces a broken ledger here, not mid-way
     except TauraError:
         return out

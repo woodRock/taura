@@ -195,7 +195,7 @@ class Project:
             return []
         try:
             lits = claimsmod.match(claimsmod.literals(self.paper), self.ledger)
-            stored = decmod.load(self.code)
+            stored = decmod.load(self.code, lits)
         except TauraError:
             return []
         return [Typed(lit, stored.get(lit.id)) for lit in lits]

@@ -46,7 +46,19 @@ class Decision:
     result_hash: str = ""
 
 
-def load(code: Path) -> dict[str, Decision]:
+def load(code: Path, lits: list[Literal] | None = None) -> dict[str, Decision]:
+    """Stored decisions by literal id. With the paper's literals, a decision stored under a literal's
+    older-scheme id is moved to its current id (saved that way next time)."""
+    out = _load(code)
+    for lit in lits or []:
+        if lit.id not in out and lit.legacy_id in out:
+            d = out.pop(lit.legacy_id)
+            d.id = lit.id
+            out[lit.id] = d
+    return out
+
+
+def _load(code: Path) -> dict[str, Decision]:
     path = code / DECISIONS_FILE
     if not path.is_file():
         return {}

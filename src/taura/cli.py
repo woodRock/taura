@@ -147,7 +147,7 @@ def _adopt_line(l, d) -> str:
 def cmd_adopt(args) -> int:
     pair = _pair(args)
     lits = claims.match(claims.literals(pair.require_paper()), Ledger(pair.code))
-    decided = decisions.apply_to(lits, decisions.load(pair.code))
+    decided = decisions.apply_to(lits, decisions.load(pair.code, lits))
     if args.redo:  # ask again about these verdicts (e.g. after adding settings)
         decided = {k: d for k, d in decided.items() if d.verdict not in args.redo}
     problems: list[str] = []
@@ -158,7 +158,7 @@ def cmd_adopt(args) -> int:
         log = (lambda m: None) if args.json else (lambda m: print(m, file=sys.stderr))
         new, problems = decisions.ask_agent(args.agent, todo, batch=args.batch, log=log)
         if new:
-            stored = decisions.load(pair.code)
+            stored = decisions.load(pair.code, lits)
             stored.update({d.id: d for d in new})
             decisions.save(pair.code, stored)
             decided = decisions.apply_to(lits, stored)
@@ -200,7 +200,7 @@ def cmd_resolve(args) -> int:
     pair = _pair(args)
     led = Ledger(pair.code)
     lits = claims.match(claims.literals(pair.require_paper()), led)
-    stored = decisions.load(pair.code)
+    stored = decisions.load(pair.code, lits)
     by = args.by or ""
     changed = []
     if args.stamp:  # verified rewrites: remember each result's hash (see Decision.result_hash)

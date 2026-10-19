@@ -107,6 +107,7 @@ class Literal:
     section: str = ""
     in_caption: bool = False
     options: list[dict] = field(default_factory=list)  # candidate details, filled by match()
+    legacy_id: str = ""  # the id under the older scheme, so decisions stored with it still apply
 
     @property
     def location(self) -> str:
@@ -149,16 +150,18 @@ def document_lines(paper: Path):
                 yield rel, i, code, raw
 
 
-_VOLATILE = re.compile(r"\\" + RES_CMD + r"\{[^{}]*\}|\d+(?:(?:[.,]|\{,\})\d+)*")
+# A number or \\res{} with its sign: "$-0.0020" and "$\\res{key}" (which prints the sign) read the same.
+_VOLATILE = re.compile(r"[-+]?(?:\\" + RES_CMD + r"\{[^{}]*\}|\d+(?:(?:[.,]|\{,\})\d+)*)")
+_VOLATILE_V1 = re.compile(r"\\" + RES_CMD + r"\{[^{}]*\}|\d+(?:(?:[.,]|\{,\})\d+)*")  # ids before 0.3: sign kept
 ID_WORDS = 6
 
 
-def literal_id(file: str, text: str, before: str, after: str) -> str:
+def literal_id(file: str, text: str, before: str, after: str, volatile: re.Pattern = _VOLATILE) -> str:
     """Stable id: the file, the number, and the words around it with every number and \\res{} collapsed.
 
     So replacing a *neighbouring* number with \\res{key} (or a line moving) doesn't change it."""
-    left = _VOLATILE.sub("#", before).split()[-ID_WORDS:]
-    right = _VOLATILE.sub("#", after).split()[:ID_WORDS]
+    left = volatile.sub("#", before).split()[-ID_WORDS:]
+    right = volatile.sub("#", after).split()[:ID_WORDS]
     key = "\0".join([file, text, " ".join(left), " ".join(right)])
     return hashlib.sha256(key.encode()).hexdigest()[:10]
 
@@ -219,6 +222,7 @@ def literals(paper: Path) -> list[Literal]:
                         rel, i, n.start() + 1, lit_text, value, pct, ctx,
                         negative=bool(n.group("sign")), exponent=exponent,
                         id=literal_id(rel, lit_text, code[:n.start()], code[n.end():]), sentence=sent.strip(),
+                        legacy_id=literal_id(rel, lit_text, code[:n.start()], code[n.end():], _VOLATILE_V1),
                         paragraph=("…" if lo else "") + text[lo:lo + PARAGRAPH_CHARS].strip(),
                         section=section, in_caption=r"\caption" in text[:pos],
                     ))
@@ -228,12 +232,13 @@ def literals(paper: Path) -> list[Literal]:
 
 def _dedupe_ids(lits: list[Literal]) -> None:
     """The same number in the same surrounding text twice: number the repeats."""
-    seen: dict[str, int] = {}
-    for lit in lits:
-        k = seen.get(lit.id, 0)
-        seen[lit.id] = k + 1
-        if k:
-            lit.id = f"{lit.id}-{k + 1}"
+    for attr in ("id", "legacy_id"):
+        seen: dict[str, int] = {}
+        for lit in lits:
+            k = seen.get(getattr(lit, attr), 0)
+            seen[getattr(lit, attr)] = k + 1
+            if k:
+                setattr(lit, attr, f"{getattr(lit, attr)}-{k + 1}")
 
 
 def _matches(lit: Literal, v: float | int, stat: str | None) -> bool:
