@@ -1,0 +1,35 @@
+# What each paper artifact is built from. Outputs land in <paper>/generated/.
+# Result keys are <result>/<metric>/<stat>, e.g. \res{mba/f1/mean}.
+
+[artifacts.results]
+kind = "macros"
+output = "generated/results.tex"
+results = []                       # e.g. ["mba", "baselines"]
+
+# A table built straight from results (one row per result):
+# [artifacts.table_main]
+# kind = "table"
+# output = "generated/table_main.tex"
+# results = ["mba", "baselines"]
+# row_header = "Method"
+# labels = { mba = "MBA", baselines = "Baseline" }
+# columns = [{ metric = "f1", label = "F1" }]
+# bold = "max"                     # bold the best cell per numeric column
+#
+# Or from a script that writes a JSON table spec (see `taura.api.write_table`):
+# script = "artifacts/table_main.py"
+
+# A figure: the script writes a PDF to $TAURA_OUTPUT.
+# [artifacts.fig_alignment]
+# kind = "figure"
+# output = "generated/fig_alignment.pdf"
+# script = "artifacts/fig_alignment.py"
+# results = ["mba"]
+
+# Number formatting, by metric name or <result>/<metric>.
+[format.default]
+decimals = 3
+
+# [format.f1]
+# decimals = 1
+# percent = true                   # 0.912 -> 91.2
