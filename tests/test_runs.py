@@ -232,7 +232,7 @@ def test_environment_and_diff(env, capsys, tmp_path):
     assert d["diff"]["outputs"]["different"] == ["results/out.json"]
 
     # a run elsewhere reports its environment (gpu-spooler passes the probe's output)
-    other = dict(e, python="3.12.15", gpus=["0, NVIDIA A100, 550.1"],
+    other = dict(e, python="0.0.1", gpus=["0, NVIDIA A100, 550.1"],  # a version no runner has
                  packages={**e["packages"], "warpalign": "3.0.1 editable @6743cf8de37a"})
     other.pop("hash")
     (tmp_path / "env.json").write_text(json.dumps(other))
@@ -240,7 +240,7 @@ def test_environment_and_diff(env, capsys, tmp_path):
                   "--command", "python3 train.py --seed 3", "--env-json", str(tmp_path / "env.json"))
     assert rec["env"]["hash"] != e["hash"] and rec["env"]["gpus"] == ["0, NVIDIA A100, 550.1"]
     rc, d = run(capsys, "-C", str(code), "runs", "--diff", first["id"], "elsewhere-1")
-    assert d["diff"]["env"]["python"][1] == "3.12.15"
+    assert d["diff"]["env"]["python"][1] == "0.0.1"
     assert d["diff"]["env"]["packages"]["warpalign"][1] == "3.0.1 editable @6743cf8de37a"
     runsmod.save(code, {"id": "old", "status": "done", "commit": first["commit"], "dirty": False})  # no env
     rc, d = run(capsys, "-C", str(code), "runs", "--diff", "old", first["id"])
