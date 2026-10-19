@@ -85,6 +85,30 @@ content hash as a run's output came from that run. A result can also list run
 IDs in `runs`. Figures link the same way, so the exporter doesn't need to change.
 `taura trace` and the TUI's Runs tab show the links.
 
+## Settings (hyperparameters)
+
+Hyperparameters the paper quotes can be checked the same way as results.
+Declare where they live in `taura.toml`, in whatever layout the repo uses:
+
+```toml
+[settings.finetune]
+path = "configs/finetune.yaml"           # YAML (needs PyYAML: taura[yaml]), TOML or JSON: every number
+
+[settings.align]
+path = "scripts/01_multibatch_align.py"  # Python: module-level UPPER_CASE = literal constants and
+names = ["N_FOLDS", "RT_BLOCK"]          # argparse defaults, read with ast, never run (names: optional)
+```
+
+Each becomes a result named `settings-<name>`, e.g.
+`\res{settings-finetune/task.cv_folds}`, and a list of numbers gives
+`…/count`, `…/min` and `…/max`. `adopt` offers settings keys as candidates for
+typed hyperparameters, and a typed value that disagrees with the config simply
+doesn't match. Settings are published and locked like results, so a config
+change since publishing is flagged. Values set inside functions aren't found,
+so quote those by hand. After adding settings,
+`taura adopt --agent CMD --redo not-a-result` re-asks about numbers decided
+before they existed.
+
 ## Tracing claims
 
 `taura trace` walks from the paper to what produced it. A target is a `\res` key

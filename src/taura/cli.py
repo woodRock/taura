@@ -148,6 +148,8 @@ def cmd_adopt(args) -> int:
     pair = _pair(args)
     lits = claims.match(claims.literals(pair.require_paper()), Ledger(pair.code))
     decided = decisions.apply_to(lits, decisions.load(pair.code))
+    if args.redo:  # ask again about these verdicts (e.g. after adding settings)
+        decided = {k: d for k, d in decided.items() if d.verdict not in args.redo}
     problems: list[str] = []
 
     if args.agent:
@@ -431,6 +433,9 @@ def parser() -> argparse.ArgumentParser:
                         "(prompt on stdin, JSON reply on stdout); decisions go to ledger/adopt.toml")
     s.add_argument("--batch", type=int, default=20, help="numbers per agent call (default 20)")
     s.add_argument("--limit", type=int, metavar="N", help="with --agent, ask about at most N numbers this run")
+    s.add_argument("--redo", nargs="+", choices=list(decisions.VERDICTS), metavar="VERDICT",
+                   help="treat decisions with these verdicts as undecided (e.g. --redo not-a-result after "
+                        "adding [settings])")
     s.add_argument("--include-unique", action="store_true",
                    help="with --todo/--agent, also include numbers with one strong match")
     s.set_defaults(func=cmd_adopt)

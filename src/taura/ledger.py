@@ -115,7 +115,7 @@ class Ledger:
             if not isinstance(results, list) or not all(isinstance(r, str) for r in results):
                 raise TauraError(f"{where}: results must be a list of result names")
             if any(c in r for r in results for c in "*?["):  # globs, e.g. ["*"] or ["ticr-*"]
-                names = sorted(load_results(self.code))
+                names = sorted(self.results)  # exported results and declared settings
                 results = sorted({n for r in results for n in (fnmatch.filter(names, r) or [r])})
             script = spec.pop("script", None)
             bold = spec.pop("bold", None)
@@ -176,8 +176,14 @@ class Ledger:
 
     @property
     def results(self) -> dict[str, dict]:
+        """The exported results, plus the settings declared in taura.toml (as settings-<name>)."""
         if self._results is None:
-            self._results = load_results(self.code)
+            from . import settings
+            exported, declared = load_results(self.code), settings.load(self.code)
+            clash = sorted(set(exported) & set(declared))
+            if clash:
+                raise TauraError(f"{RESULTS_DIR}: {', '.join(clash)} clash with [settings] in taura.toml")
+            self._results = exported | declared
         return self._results
 
     def result(self, name: str) -> dict:

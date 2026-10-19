@@ -101,12 +101,15 @@ matches it (at the precision it was typed).
 
 For each item decide, from the text, what the number is:
 - "result": it reports one of the candidate results. Give its "key". Read the sentence: it names
-  the method, batch pair, group or quantity, which tells you which candidate it is.
-- "not-a-result": it is not a computed result (a year, postcode, page or section number, a
-  hyperparameter or setting the authors chose, a count of samples or batches that describes the
-  data, a value quoted from another paper, a range bound in a description). Also use this when a
-  candidate matches only by coincidence (e.g. a correlation coefficient that happens to equal a
-  TIC r to two decimals).
+  the method, batch pair, group or quantity, which tells you which candidate it is. Candidates whose
+  key starts with "settings-" are settings read from the code's config files and constants
+  (hyperparameters, folds, seeds, sizes): a hyperparameter or setting the text states is that key.
+  But a value chosen by a search or by cross-validation is a result, not a setting.
+- "not-a-result": it is neither a computed result nor a recorded setting (a year, postcode, page
+  or section number, a hyperparameter with no settings- candidate, a count of samples or batches
+  that describes the data, a value quoted from another paper, a range bound in a description). Also
+  use this when a candidate matches only by coincidence (e.g. a correlation coefficient that happens
+  to equal a TIC r to two decimals).
 - "unrecorded": it IS a computed result of this paper's experiments (an error, score, count of
   anchors, coverage, timing...) but none of the candidates is it, or there are no candidates.
 
