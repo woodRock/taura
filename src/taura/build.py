@@ -19,7 +19,7 @@ from .discovery import contract
 from .errors import TauraError
 from .generate import parse, render_header, render_macros, render_table
 from .hashing import content_hash, sha256_text
-from .ledger import ROUNDINGS, Artifact, Ledger, flatten
+from .ledger import Artifact, Ledger, flatten, variant_ok
 
 STAGING = Path(gitutil.STAGING_DIR) / "build"
 ENV_PYTHON = f"{NAME.upper()}_PYTHON"
@@ -160,9 +160,9 @@ def build_one(ledger: Ledger, art: Artifact, staging: Path, commit_label: str) -
                     fmt = ledger.format_for(r, metric, key)
                     values.append((key, fmt.render(v, stat)))
                     for d in fmt.variants:  # rounded restatements key@N, and bounds key@up / key@down
-                        if not (isinstance(d, int) or d in ROUNDINGS):
-                            raise TauraError(f"format for {key}: variants are decimals (2) or "
-                                             f"{' / '.join(ROUNDINGS)}, got {d!r}")
+                        if not variant_ok(d):
+                            raise TauraError(f"format for {key}: variants are decimals (2) or a rounding "
+                                             f"(up, down, or with decimals: up3), got {d!r}")
                         values.append((f"{key}@{d}", ledger.render_key(f"{key}@{d}")))
             body = render_macros(sorted(values))
         else:

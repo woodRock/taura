@@ -28,15 +28,22 @@ KEY_PART = re.compile(r"^[A-Za-z0-9_.\-]+$")
 
 FORMAT_OPTIONS = ("decimals", "percent", "thousands", "sign", "sci", "round", "variants")
 VARIANT = "@"  # \res{key@2}: the value with 2 decimals; \res{key@up}: rounded up (declared with variants)
-ROUNDINGS = ("up", "down")
+
+
+_ROUNDED = re.compile(r"^(up|down)(\d*)$")
+
+
+def variant_ok(v) -> bool:
+    """A declared variant: decimals (2), or a rounding with optional decimals ("up", "up3", "down")."""
+    return (isinstance(v, int) and not isinstance(v, bool)) or (isinstance(v, str) and bool(_ROUNDED.match(v)))
 
 
 def base_key(key: str) -> tuple[str, int | str | None]:
-    """key@2 -> (key, 2); key@up -> (key, "up"); key -> (key, None)."""
+    """key@2 -> (key, 2); key@up / key@up3 -> (key, "up" / "up3"); key -> (key, None)."""
     base, sep, d = key.rpartition(VARIANT)
     if sep and d.isdigit():
         return base, int(d)
-    if sep and d in ROUNDINGS:
+    if sep and _ROUNDED.match(d):
         return base, d
     return key, None
 
@@ -51,7 +58,7 @@ class Format:
     #                          mantissa). "power": like True, but a mantissa of 1 prints as 10^{-3}
     round: str = "nearest"  # "up" for upper bounds (p <= ...), "down" for lower bounds (r >= ...)
     variants: list = field(default_factory=list)  # also publish key@N (N decimals: a rounded restatement)
-    #                                                 and key@up / key@down (a bound: "less than 0.003")
+    #                                                 and key@up, key@up3, key@down (a bound, with decimals)
 
     def _round(self, x: float, decimals: int) -> float:
         if self.round == "up":
@@ -249,8 +256,9 @@ class Ledger:
         fmt = self.format_for(result, metric, base)
         if isinstance(variant, int):
             fmt = dataclasses.replace(fmt, decimals=variant)
-        elif variant is not None:
-            fmt = dataclasses.replace(fmt, round=variant)
+        elif variant is not None:  # up, up3: rounded up (with 3 decimals)
+            how, digits = _ROUNDED.match(variant).groups()
+            fmt = dataclasses.replace(fmt, round=how, **({"decimals": int(digits)} if digits else {}))
         return fmt.render(v, stat)
 
     def all_keys(self) -> dict[str, tuple[str, str, str | None, object]]:

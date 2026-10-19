@@ -188,7 +188,8 @@ Number formats go in `[format.default]`, `[format.<metric>]`,
 mantissa of 1 as `10^{-3}`), `round = "up"` (for bounds such as `p \le …`) and
 `variants`. `variants = [2]` also publishes `key@2`, the same value with 2
 decimals, for a rounded restatement ("0.85" in the abstract, "0.854" in the
-table). `variants = ["up"]` publishes `key@up`, rounded up, for a bound stated
+table). `variants = ["up3"]` publishes `key@up3`, rounded up to 3 decimals (`"up"`: the
+key's own decimals), for a bound stated
 next to the value itself ("less than 0.003" where the table says 0.002), and
 `"down"` a lower bound. Each is checked like the key itself.
 

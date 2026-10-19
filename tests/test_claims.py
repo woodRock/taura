@@ -217,13 +217,14 @@ def test_bound_variants(env, capsys):
     run(capsys, "-C", str(code), "init")
     setup_ledger(code)
     toml = (code / "ledger/artifacts.toml").read_text()
-    (code / "ledger/artifacts.toml").write_text(toml + '\n[format."mba/f1/mean"]\ndecimals = 2\nvariants = ["up", "down"]\n')
+    (code / "ledger/artifacts.toml").write_text(toml + '\n[format."mba/f1/mean"]\ndecimals = 2\nvariants = ["up", "down", "up1"]\n')
     commit_all(code, "bounds")
     assert run(capsys, "-C", str(code), "publish")[0] == 0
     body = (paper / "generated/results.tex").read_text()
     assert r"\csname taura@mba/f1/mean\endcsname{0.91}" in body
     assert r"\csname taura@mba/f1/mean@up\endcsname{0.92}" in body
     assert r"\csname taura@mba/f1/mean@down\endcsname{0.91}" in body
+    assert r"\csname taura@mba/f1/mean@up1\endcsname{1.0}" in body
     (code / "ledger/artifacts.toml").write_text(toml + '\n[format."mba/f1/mean"]\nvariants = ["sideways"]\n')
     commit_all(code, "bad variant")
     rc, r = run(capsys, "-C", str(code), "build")
