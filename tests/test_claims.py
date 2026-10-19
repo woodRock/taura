@@ -89,6 +89,8 @@ def test_seed_claim(repos):
     (Format(sci=True, decimals=0, round="up"), 0.00102, None, r"2\times10^{-3}"),
     (Format(sci=True, decimals=1), 0.000996, None, r"1.0\times10^{-3}"),
     (Format(decimals=2, round="up"), 0.1365, None, "0.14"),
+    (Format(sci="power", decimals=0), 0.001, None, r"10^{-3}"),
+    (Format(sci="power", decimals=0), 0.0025, None, r"2\times10^{-3}"),
     (Format(decimals=2, round="up"), 0.1301, None, "0.14"),
 ])
 def test_formats(fmt, value, stat, want):
@@ -172,3 +174,18 @@ def test_seed_claims_compare_seeds_and_folds(tmp_path):
                                  "Over 50 runs we get \\res{cnn/ba/mean}.\n")
     claims = seed_claims(paper, Ledger(code))
     assert [(c.line, c.claimed, c.actual) for c in claims] == [(2, 12, 10)]
+
+
+def test_powers_of_ten(tmp_path):
+    (tmp_path / "x.tex").write_text("A learning rate of $10^{-3}$ and weight decay $10^{-4}$ for 20{,}000 steps.\n")
+    found = {l.text: l for l in literals(tmp_path)}
+    assert set(found) == {"10^{-3}", "10^{-4}", "20{,}000"}
+    assert (found["10^{-3}"].value, found["10^{-3}"].exponent) == ("1", -3)
+    code = tmp_path / "code"
+    (code / "ledger/results").mkdir(parents=True)
+    (code / "ledger/artifacts.toml").write_text("")
+    (code / "ledger/results/s.json").write_text(json.dumps(
+        {"name": "s", "metrics": {"lr": 0.001, "wd": 0.0001, "steps": 20000}}))
+    by = {l.text: l for l in match(literals(tmp_path), Ledger(code))}
+    assert by["10^{-3}"].candidates == ["s/lr"] and 'sci = "power"' in by["10^{-3}"].format_hint
+    assert by["20{,}000"].candidates == ["s/steps"]

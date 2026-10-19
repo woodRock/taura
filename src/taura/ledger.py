@@ -33,7 +33,8 @@ class Format:
     percent: bool = False  # 0.912 -> 91.2 (the % sign stays in the .tex)
     thousands: bool = False  # 4396 -> 4{,}396
     sign: bool = False  # explicit + on positive numbers
-    sci: bool = False  # 0.00195 -> 2\\times10^{-3} (math mode); decimals apply to the mantissa
+    sci: bool | str = False  # True: 0.00195 -> 2\\times10^{-3} (math mode; decimals apply to the
+    #                          mantissa). "power": like True, but a mantissa of 1 prints as 10^{-3}
     round: str = "nearest"  # or "up": for bounds such as p <= ..., so rounding never makes them false
 
     def _round(self, x: float, decimals: int) -> float:
@@ -51,6 +52,8 @@ class Format:
             m = self._round(abs(value) / 10.0 ** e, self.decimals)
             if m >= 10:
                 m, e = m / 10, e + 1
+            if self.sci == "power" and float(f"{m:.{self.decimals}f}") == 1:
+                return ("-" if value < 0 else "") + f"10^{{{e}}}"
             return ("-" if value < 0 else "") + f"{m:.{self.decimals}f}\\times10^{{{e}}}"
         if stat == "n" or (isinstance(value, int) and not self.percent):
             s = f"{int(value):,}" if self.thousands else str(int(value))

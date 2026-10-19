@@ -33,6 +33,8 @@ NUMBER = re.compile(
     r"(?P<sign>(?<![\w.\\-])-|\$-\$)?(?<![\w.\\])"
     # 2\times10^{-3} as one number, or a plain number with optional thousands separators
     r"(?:(?P<sci>(?P<mant>\d+(?:\.\d+)?)\s*\\times\s*10\^(?:\{(?P<exp>-?\d+)\}|(?P<exp1>\d)))"
+    # a bare power of ten: 10^{-3} (a learning rate), read as 1 x 10^-3
+    r"|(?P<pow>10\^(?:\{(?P<pexp>-?\d+)\}|(?P<pexp1>\d)))"
     r"|(?P<num>\d{1,3}(?:(?:,|\{,\})\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?))"
     r"(?!\.?\d)(?P<pct>\s*\\%)?(?![A-Za-z])"
 )
@@ -203,6 +205,8 @@ def literals(paper: Path) -> list[Literal]:
                     lit_text = code[n.start():n.end()].strip()
                     if n.group("sci"):
                         value, exponent = n.group("mant"), int(n.group("exp") or n.group("exp1"))
+                    elif n.group("pow"):
+                        value, exponent = "1", int(n.group("pexp") or n.group("pexp1"))
                     else:
                         value, exponent = re.sub(r"\{,\}|,", "", n.group("num")), None
                     ctx = code[max(0, n.start() - 40):n.end() + 40].strip()
@@ -240,7 +244,10 @@ def _matches(lit: Literal, v: float | int, stat: str | None) -> bool:
             return False
         d = len(lit.value.split(".")[1]) if "." in lit.value else 0
         m = v / 10.0 ** lit.exponent
-        return f"{m:.{d}f}" == lit.value or f"{math.ceil(m * 10 ** d - 1e-9) / 10 ** d:.{d}f}" == lit.value
+        if f"{m:.{d}f}" == lit.value:
+            return True
+        # a bound such as p <= 2\\times10^{-3} may be rounded up; a bare 10^{-3} states a value
+        return "times" in lit.text and f"{math.ceil(m * 10 ** d - 1e-9) / 10 ** d:.{d}f}" == lit.value
     if "." not in lit.value and not lit.percent:  # integers: only large ones; small ones are often coincidences
         return isinstance(v, int) and int(lit.value) >= 100 and v == int(lit.value)
     if stat == "n":
@@ -267,7 +274,9 @@ def _format_hint(lit: Literal, key: str, rendered: str) -> str | None:
         opts.append("percent = true")
     if "," in lit.text:
         opts.append("thousands = true")
-    if lit.exponent is not None:
+    if lit.exponent is not None and not re.search(r"\\times", lit.text):
+        opts.append('sci = "power"')
+    elif lit.exponent is not None:
         opts += ["sci = true", 'round = "up"']
     return f'[format."{key}"] ' + ", ".join(opts) if opts else None
 
