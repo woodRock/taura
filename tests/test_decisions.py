@@ -192,7 +192,7 @@ def test_rewriting_a_signed_neighbour_keeps_the_id_and_old_ids_still_apply(tmp_p
     ids = {}
     for name, text in (("before", before), ("after", after)):
         (tmp_path / "main.tex").write_text("\\begin{document}\n" + text + "\n\\end{document}\n")
-        ids[name] = {lit.text: (lit.id, lit.legacy_id) for lit in claims.literals(tmp_path)}
+        ids[name] = {lit.text: (lit.id, lit.legacy_ids) for lit in claims.literals(tmp_path)}
     assert ids["before"][r"0\%"][0] == ids["after"][r"0\%"][0]
     assert ids["before"][r"30\%"][0] == ids["after"][r"30\%"][0]
 
@@ -201,8 +201,8 @@ def test_rewriting_a_signed_neighbour_keeps_the_id_and_old_ids_still_apply(tmp_p
     (tmp_path / "main.tex").write_text("\\begin{document}\n" + before + "\n\\end{document}\n")
     lits = claims.literals(tmp_path)
     old = next(lit for lit in lits if lit.text == r"0\%")
-    assert old.legacy_id != old.id  # the signed neighbour made the old scheme's id differ
-    d = decisions.Decision(old.legacy_id, "main.tex", r"0\%", "", "not-a-result", reason="a rate")
+    assert old.legacy_ids[-1] != old.id  # the signed neighbour made the oldest scheme's id differ
+    d = decisions.Decision(old.legacy_ids[-1], "main.tex", r"0\%", "", "not-a-result", reason="a rate")
     decisions.save(tmp_path, {d.id: d})
     assert set(decisions.load(tmp_path, lits)) == {old.id}
 
@@ -217,3 +217,13 @@ def test_packet_lists_settings_first():
                  "stat": None})
     lit = Literal(file="main.tex", line=1, col=0, text="0.5", value="0.5", percent=False, context="", options=opts)
     assert decisions.packet(lit)["candidates"][0]["key"] == "settings-model/S_MIN"
+
+
+def test_rewriting_a_power_of_ten_keeps_neighbouring_ids(tmp_path):
+    from taura import claims
+
+    ids = []
+    for text in (r"from $\{0.1, 1, 10, 30, 10^4\}$.", r"from $\{\res{a/min}, 1, 10, 30, \res{a/max}\}$."):
+        (tmp_path / "main.tex").write_text("\\begin{document}\n" + text + "\n\\end{document}\n")
+        ids.append({lit.text: lit.id for lit in claims.literals(tmp_path)})
+    assert all(ids[0][k] == ids[1][k] for k in ("1", "10", "30"))

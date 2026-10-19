@@ -401,8 +401,12 @@ def check_runs(ledger: Ledger, lock: dict) -> list[Finding]:
     watch = runsmod.watch_paths(code)
     affected: dict[str, list[str]] = {}
     for what, explicit, content in published:
-        for rid, _ in idx.linked(explicit, content):
-            if rid in idx.records:
+        # runs named explicitly all count; of the runs that wrote this content, the newest one: an
+        # older run whose code has since changed is superseded by a rerun that reproduced it
+        links = idx.linked(explicit, content)
+        newest = next((rid for rid, how in links if how != "explicit" and rid in idx.records), None)
+        for rid, how in links:
+            if rid in idx.records and (how == "explicit" or rid == newest):
                 affected.setdefault(rid, []).append(what)
     for rid, whats in sorted(affected.items()):
         rec, loc, used = idx.records[rid], f"ledger/runs/{rid}.toml", ", ".join(sorted(set(whats)))

@@ -109,7 +109,7 @@ class Literal:
     section: str = ""
     in_caption: bool = False
     options: list[dict] = field(default_factory=list)  # candidate details, filled by match()
-    legacy_id: str = ""  # the id under the older scheme, so decisions stored with it still apply
+    legacy_ids: list[str] = field(default_factory=list)  # ids under older schemes: their decisions apply
 
     @property
     def location(self) -> str:
@@ -152,9 +152,15 @@ def document_lines(paper: Path):
                 yield rel, i, code, raw
 
 
-# A number or \\res{} with its sign: "$-0.0020" and "$\\res{key}" (which prints the sign) read the same.
-_VOLATILE = re.compile(r"[-+]?(?:\\" + RES_CMD + r"\{[^{}]*\}|\d+(?:(?:[.,]|\{,\})\d+)*)")
-_VOLATILE_V1 = re.compile(r"\\" + RES_CMD + r"\{[^{}]*\}|\d+(?:(?:[.,]|\{,\})\d+)*")  # ids before 0.3: sign kept
+# A number or \\res{} with its sign, a power of ten and m\\times10^n included: "$-0.0020", "10^4" and
+# "$\\res{key}" (which prints the sign or power) all read as one placeholder.
+_VOLATILE = re.compile(r"[-+]?(?:\\" + RES_CMD + r"\{[^{}]*\}"
+                       r"|(?:\d+(?:\.\d+)?\s*\\times\s*)?10\^(?:\{-?\d+\}|\d)|\d+(?:(?:[.,]|\{,\})\d+)*)")
+# Older schemes, so decisions stored with their ids still apply (newest first).
+_VOLATILE_OLD = (
+    re.compile(r"[-+]?(?:\\" + RES_CMD + r"\{[^{}]*\}|\d+(?:(?:[.,]|\{,\})\d+)*)"),  # powers of ten split
+    re.compile(r"\\" + RES_CMD + r"\{[^{}]*\}|\d+(?:(?:[.,]|\{,\})\d+)*"),  # sign kept
+)
 ID_WORDS = 6
 
 
@@ -224,7 +230,8 @@ def literals(paper: Path) -> list[Literal]:
                         rel, i, n.start() + 1, lit_text, value, pct, ctx,
                         negative=bool(n.group("sign")), exponent=exponent,
                         id=literal_id(rel, lit_text, code[:n.start()], code[n.end():]), sentence=sent.strip(),
-                        legacy_id=literal_id(rel, lit_text, code[:n.start()], code[n.end():], _VOLATILE_V1),
+                        legacy_ids=[literal_id(rel, lit_text, code[:n.start()], code[n.end():], v)
+                                    for v in _VOLATILE_OLD],
                         paragraph=("…" if lo else "") + text[lo:lo + PARAGRAPH_CHARS].strip(),
                         section=section, in_caption=r"\caption" in text[:pos],
                     ))
@@ -234,13 +241,19 @@ def literals(paper: Path) -> list[Literal]:
 
 def _dedupe_ids(lits: list[Literal]) -> None:
     """The same number in the same surrounding text twice: number the repeats."""
-    for attr in ("id", "legacy_id"):
-        seen: dict[str, int] = {}
+    seen: dict[str, int] = {}
+    for lit in lits:
+        k = seen.get(lit.id, 0)
+        seen[lit.id] = k + 1
+        if k:
+            lit.id = f"{lit.id}-{k + 1}"
+    for i in range(max((len(lit.legacy_ids) for lit in lits), default=0)):
+        seen = {}
         for lit in lits:
-            k = seen.get(getattr(lit, attr), 0)
-            seen[getattr(lit, attr)] = k + 1
+            k = seen.get(lit.legacy_ids[i], 0)
+            seen[lit.legacy_ids[i]] = k + 1
             if k:
-                setattr(lit, attr, f"{getattr(lit, attr)}-{k + 1}")
+                lit.legacy_ids[i] = f"{lit.legacy_ids[i]}-{k + 1}"
 
 
 def _matches(lit: Literal, v: float | int, stat: str | None) -> bool:

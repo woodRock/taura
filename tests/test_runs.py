@@ -109,6 +109,14 @@ def test_results_link_to_runs_and_checks(env, capsys, monkeypatch):
     [f] = [f for f in r["findings"] if f["id"] == "code-changed-since-run"]
     assert "result mba" in f["message"] and "train.py" in f["message"]
 
+    # a later run at the changed commit wrote the same content: the old run is superseded, nothing to warn
+    head = git(code, "rev-parse", "HEAD").strip()
+    runsmod.save(code, {"id": "2099-01-01-rerun", "status": "done", "exit_code": 0, "commit": head, "dirty": False,
+                        "started": "2099-01-01T00:00:00+00:00", "command": "python train.py",
+                        "outputs": {"results/out.json": mba["source"]["hash"]}})
+    rc, r = run(capsys, "-C", str(code), "check")
+    assert not [f for f in r["findings"] if f["id"] == "code-changed-since-run"], r["findings"]
+
     # a result naming a run with no record; a record whose commit doesn't exist
     mba["runs"] = ["2026-01-01-nope"]
     (code / "ledger/results/mba.json").write_text(json.dumps(mba))

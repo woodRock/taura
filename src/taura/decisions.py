@@ -52,8 +52,9 @@ def load(code: Path, lits: list[Literal] | None = None) -> dict[str, Decision]:
     older-scheme id is moved to its current id (saved that way next time)."""
     out = _load(code)
     for lit in lits or []:
-        if lit.id not in out and lit.legacy_id in out:
-            d = out.pop(lit.legacy_id)
+        old = next((i for i in lit.legacy_ids if i in out), None) if lit.id not in out else None
+        if old is not None:
+            d = out.pop(old)
             d.id = lit.id
             out[lit.id] = d
     return out
