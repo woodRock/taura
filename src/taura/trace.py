@@ -39,6 +39,8 @@ def _artifact(p: Project, a: ArtifactView) -> dict:
     }
     if art is not None and (art.source or art.script):
         out["made"] = {"script": art.script, "source": art.source, "made_by": art.made_by}
+    if a.kind == "figure":
+        out["run_records"] = p.runs_for(None, entry.get("hash"))
     return out
 
 
@@ -131,8 +133,34 @@ def _result_lines(r: dict, indent: str) -> list[str]:
             out += [f"{indent}         {line}" for line in prov]
     if r.get("produced_by"):
         out.append(f"{indent}by       {r['produced_by']}")
-    runs = r.get("runs")
-    out.append(f"{indent}runs     " + (", ".join(runs) if runs else "none recorded (run records are phase 2)"))
+    out += _run_lines(r.get("run_records"), indent)
+    return out
+
+
+def _run_lines(recs: list[dict] | None, indent: str) -> list[str]:
+    if not recs:
+        return [f"{indent}runs     none recorded (taura run -- <cmd>, or gpu-spooler with taura installed)"]
+    out = []
+    for i, rr in enumerate(recs):
+        head = f"{indent}{'runs' if i == 0 else '':<9}{rr['id']}"
+        if rr.get("missing"):
+            out.append(head + "  (no record in ledger/runs/)")
+            continue
+        commit = (rr.get("commit") or "?")[:7]
+        if rr.get("dirty"):
+            commit += f" dirty (on {rr['base_commit'][:7]})" if rr.get("base_commit") else " dirty"
+        where = rr.get("host", "?") + (f" gpus {rr['gpus']}" if rr.get("gpus") else "")
+        job = f", spooler task {rr['spooler_job']}" if rr.get("spooler_job") is not None else ""
+        out.append(f"{head}  [{rr.get('status', '?')}, exit {rr.get('exit_code', '?')}]  via {rr['link']}")
+        out.append(f"{indent}           commit {commit}  on {where}{job}  {rr.get('started', '')}")
+        out.append(f"{indent}           $ {rr.get('command', '')}")
+        cfg = f"config {rr['config_path']} {_short(rr.get('config_hash'))}" if rr.get("config_path") else ""
+        seed = f"seed {rr['seed']}" if rr.get("seed") is not None else ""
+        if cfg or seed:
+            out.append(f"{indent}           " + "  ".join(x for x in (cfg, seed) if x))
+        for name, d in (rr.get("data") or {}).items():
+            label = f" {d['label']}" if d.get("label") else ""
+            out.append(f"{indent}           data {name}{label}  {_short(d.get('hash'))}  ({d.get('files', '?')} files)")
     return out
 
 
@@ -169,6 +197,8 @@ def render(t: dict) -> str:
             if made.get("script"):
                 out.append(f"    script   {made['script']}  {_short(it['lock'].get('script_hash'))}")
             out.append(f"    lock     {_short(it['lock'].get('hash')) or 'not published'}")
+            if it["artifact_kind"] == "figure":
+                out += _run_lines(it.get("run_records"), "    ")
             for r in it["inputs"]:
                 out += _result_lines(r, "    ")
             out.append(_publish_line(it["publish"], "    "))

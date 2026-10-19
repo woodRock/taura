@@ -57,3 +57,10 @@ def show(repo: Path, rev: str, path: str) -> bytes | None:
         ["git", "-C", str(repo), "show", f"{rev}:{path}"], capture_output=True, check=False
     )
     return r.stdout if r.returncode == 0 else None
+
+
+def is_dirty_except(repo: Path, paths: list[str]) -> bool:
+    """Uncommitted changes outside taura's staging area and the given paths (e.g. ledger/runs)."""
+    excludes = [f":(exclude){p}" for p in [STAGING_DIR, *paths]]
+    r = git(repo, "status", "--porcelain", "--", ".", *excludes, check=False)
+    return bool(r.stdout.strip())

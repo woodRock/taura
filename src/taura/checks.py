@@ -11,6 +11,7 @@ from pathlib import Path
 from . import claims, decisions, gitutil
 from . import lock as lockmod
 from . import paper as papermod
+from . import runs as runsmod
 from .discovery import LOCK_FILE, Pair
 from .errors import TauraError
 from .generate import is_bold, leading_number, parse, parse_macros, parse_table
@@ -344,6 +345,59 @@ def check_stale(ledger: Ledger, lock: dict) -> list[Finding]:
     return out
 
 
+def check_runs(ledger: Ledger, lock: dict) -> list[Finding]:
+    """Run provenance: records exist, commits exist, and published results come from clean,
+    successful runs whose code hasn't changed since."""
+    code = ledger.code
+    idx = runsmod.Index(code)
+    out = []
+    for rid, rec in idx.records.items():
+        commit = rec.get("commit")
+        if commit and commit != "unknown" and gitutil.is_repo(code) and not runsmod.commit_exists(code, commit):
+            out.append(Finding("missing-commit", "error", "code", f"ledger/runs/{rid}.toml",
+                               f"run {rid}'s commit {commit[:12]} is not in the code repo",
+                               "fetch or restore that commit (was it rebased away?); a snapshot from gpu-spooler "
+                               "sync lives under refs/gpu-spooler/ on the server"))
+    # what the paper depends on: published results and published figures, with the content they hold
+    published: list[tuple[str, list[str] | None, str | None]] = []
+    for name in lock["results"]:
+        r = ledger.results.get(name)
+        if r is not None:
+            published.append((f"result {name}", r.get("runs"), (r.get("source") or {}).get("hash")))
+    for name, entry in lock["artifacts"].items():
+        if entry.get("kind") == "figure":
+            published.append((f"figure {name}", None, entry.get("hash")))
+    for name, r in ledger.results.items():
+        for rid in r.get("runs") or []:
+            if rid not in idx.records:
+                out.append(Finding("missing-run", "error", "code", f"ledger/results/{name}.json",
+                                   f"result {name} names run {rid}, which has no record in ledger/runs/",
+                                   f"record it (`taura record {rid} ...`) or remove it from the result's runs"))
+    watch = runsmod.watch_paths(code)
+    affected: dict[str, list[str]] = {}
+    for what, explicit, content in published:
+        for rid, _ in idx.linked(explicit, content):
+            if rid in idx.records:
+                affected.setdefault(rid, []).append(what)
+    for rid, whats in sorted(affected.items()):
+        rec, loc, used = idx.records[rid], f"ledger/runs/{rid}.toml", ", ".join(sorted(set(whats)))
+        if rec.get("dirty"):
+            out.append(Finding("dirty-run", "warn", "code", loc,
+                               f"{used} comes from run {rid}, made with uncommitted changes",
+                               "re-run from a clean, committed tree before submission"))
+        if rec.get("exit_code") not in (0, None):
+            out.append(Finding("failed-run", "warn", "code", loc,
+                               f"{used} comes from run {rid}, which exited {rec['exit_code']}",
+                               "check the run; re-run it if its outputs are incomplete"))
+        base = rec.get("base_commit") or rec.get("commit")
+        changed = runsmod.changed_since(code, base, list(rec.get("inputs") or []) + watch) if base else []
+        if changed:
+            out.append(Finding("code-changed-since-run", "warn", "code", loc,
+                               f"{used} comes from run {rid}, but {', '.join(changed)} changed since its commit "
+                               f"{base[:7]}", "re-run it to confirm the results still hold, then publish"))
+    return out
+
+
 # ---- driver ---------------------------------------------------------------------
 
 
@@ -379,6 +433,7 @@ def run_checks(pair: Pair) -> Report:
     findings += check_dangling_keys(pair.paper, ledger)
     findings += check_generated_dir(pair.paper, lock)
     findings += check_stale(ledger, lock)
+    findings += check_runs(ledger, lock)
     findings += check_figures(pair.paper, pair.code)
     findings += check_prose(pair.paper, ledger)
     order = {"error": 0, "warn": 1}

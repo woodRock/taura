@@ -86,7 +86,7 @@ MBA reaches an F1 of \res{mba/f1/mean}$\pm$\res{mba/f1/std} over \res{mba/f1/n} 
 def result(name, f1, std, time):
     return {
         "name": name,
-        "runs": [f"2026-10-19-{name}-{i}" for i in range(3)],
+        "runs": [],  # run records are tested in test_runs.py
         "metrics": {"f1": {"mean": f1, "std": std, "n": 3, "values": [f1 - std, f1, f1 + std]}, "time": time},
         "produced_by": "scripts/aggregate.py",
         "created": "2026-10-19T15:00:00+13:00",

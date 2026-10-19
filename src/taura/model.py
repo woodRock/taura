@@ -14,6 +14,7 @@ from . import claims as claimsmod
 from . import decisions as decmod
 from . import lock as lockmod
 from . import paper as papermod
+from . import runs as runsmod
 from .checks import Finding, Report, published_keys, run_checks
 from .discovery import Pair, contract
 from .errors import TauraError
@@ -116,6 +117,13 @@ class Project:
         return self.ledger.format_for(result, metric, key).render(v, stat)
 
     @cached_property
+    def runs(self) -> runsmod.Index:
+        return runsmod.Index(self.code)
+
+    def runs_for(self, explicit: list[str] | None, content: str | None) -> list[dict]:
+        return [self.runs.summary(rid, how) for rid, how in self.runs.linked(explicit, content)]
+
+    @cached_property
     def report(self) -> Report:
         try:
             return run_checks(self.pair)
@@ -208,6 +216,7 @@ class Project:
         for k in ("produced_by", "created", "runs", "source"):
             if k in r:
                 info[k] = r[k]
+        info["run_records"] = self.runs_for(r.get("runs"), (r.get("source") or {}).get("hash"))
         if metric is not None:
             v = r["metrics"].get(metric)
             info["key"] = "/".join(x for x in (name, metric, stat) if x)

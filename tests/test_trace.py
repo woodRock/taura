@@ -53,7 +53,7 @@ def test_trace_shows_staleness_and_text(env, capsys):
     assert main(["-C", str(code), "trace", "mba/f1/mean"]) == 0
     text = capsys.readouterr().out
     assert "prints 0.912  [stale, code now gives 0.917]" in text and "CHANGED since publish" in text
-    assert "runs     2026-10-19-mba-0, 2026-10-19-mba-1, 2026-10-19-mba-2" in text
+    assert "runs     none recorded" in text
 
 
 def test_trace_typed_numbers_and_errors(env, capsys):

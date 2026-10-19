@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shlex
+import subprocess
 import sys
 from dataclasses import asdict
 from pathlib import Path
 
-from . import NAME, __version__, claims, decisions
+from . import NAME, __version__, claims, decisions, gitutil, runs
 from . import lock as lockmod
 from . import trace as tracemod
 from .build import build
@@ -245,6 +248,90 @@ def cmd_papers(args) -> int:
     return 1 if any(r["errors"] for r in rows) else 0
 
 
+def _code(args) -> Path:
+    """The code repo: the paired one, or (outside the roots) the git repo here if it has a ledger."""
+    try:
+        return _pair(args).code
+    except TauraError as e:
+        here = Path(args.C).expanduser() if args.C else Path.cwd()
+        r = gitutil.git(here, "rev-parse", "--show-toplevel", check=False)
+        top = Path(r.stdout.strip()) if r.returncode == 0 else None
+        if top and (top / "ledger").is_dir():
+            return top
+        raise e
+
+
+def cmd_run(args) -> int:
+    argv = args.cmd[1:] if args.cmd[:1] == ["--"] else args.cmd
+    if not argv:
+        raise TauraError("nothing to run: taura run -- <command> [args...]")
+    code = _code(args)
+    cwd = Path(args.C).expanduser().resolve() if args.C else Path.cwd()
+    run_id = args.id or runs.new_id()
+    rec = runs.start_record(code, run_id, argv, cwd=cwd, runner=NAME) | runs.git_state(code)
+    where = runs.save(code, rec)
+    if rec["dirty"]:
+        print(f"{NAME}: note: the code repo has uncommitted changes; run {run_id} is recorded as dirty",
+              file=sys.stderr)
+    before = runs.scan(code)
+    try:
+        rc = subprocess.run(argv, cwd=cwd, env={**os.environ, f"{NAME.upper()}_RUN_ID": run_id}).returncode
+    except FileNotFoundError:
+        print(f"{NAME}: command not found: {argv[0]}", file=sys.stderr)
+        rc = 127
+    except KeyboardInterrupt:
+        rc = 130
+    outs = runs.outputs(code, before, runs.scan(code), args.outputs or [])
+    rec |= {"status": "done" if rc == 0 else "failed", "finished": runs.now(), "exit_code": rc,
+            "outputs": outs or None}
+    runs.save(code, rec)
+    summary = f"{NAME}: run {run_id} ({rec['status']}, exit {rc}, {len(outs)} output(s)) → {where.relative_to(code)}"
+    if args.json:
+        print(json.dumps(rec, indent=2, sort_keys=True))
+    else:
+        print(summary, file=sys.stderr)
+    return rc
+
+
+def cmd_record(args) -> int:
+    code = _code(args)
+    rec = runs.load(code, args.id)
+    new = rec is None
+    if new:
+        argv = shlex.split(args.command) if args.command else []
+        base = (code / args.cwd) if args.cwd else code
+        rec = runs.start_record(code, args.id, argv, command=args.command, cwd=base,
+                                runner=args.runner) if args.event in (None, "start") or argv else {"id": args.id}
+    if new or args.commit:
+        rec |= runs.git_state(code, args.commit, args.dirty_count if args.commit else None)
+    for field, value in (("host", args.host), ("gpus", args.gpus), ("spooler_job", args.spooler_job),
+                         ("runner", args.runner), ("cwd", args.cwd)):
+        if value is not None:
+            rec[field] = value
+    if args.started:
+        rec["started"] = runs.iso(args.started)
+    if args.event == "finish" or args.exit_code is not None:
+        rec["finished"] = runs.iso(args.finished) or runs.now()
+        if args.exit_code is not None:
+            rec["exit_code"] = args.exit_code
+        rec["status"] = "done" if args.exit_code == 0 else "failed"
+    if args.outputs:
+        rec["outputs"] = dict(rec.get("outputs") or {}) | runs.hash_outputs(code, args.outputs)
+    where = runs.save(code, rec)
+    _emit(args, rec, f"{'recorded' if new else 'updated'} run {args.id} → {where.relative_to(code)}")
+    return 0
+
+
+def cmd_runs(args) -> int:
+    code = _code(args)
+    recs = runs.load_all(code)
+    lines = [f"{r.get('id'):<34} {r.get('status', '?'):<8} {(r.get('commit') or '?')[:7]}"
+             f"{'+dirty' if r.get('dirty') else '      '} {(r.get('host') or '?'):<14} {r.get('command', '')[:70]}"
+             for r in recs.values()]
+    _emit(args, {"runs": list(recs.values())}, "\n".join(lines) or "no run records yet")
+    return 0
+
+
 def cmd_tui(args) -> int:
     try:
         from .tui import run
@@ -321,6 +408,31 @@ def parser() -> argparse.ArgumentParser:
     s.set_defaults(func=cmd_trace)
     s = sub.add_parser("papers", parents=[common], help="every paired code and paper repo under the roots")
     s.set_defaults(func=cmd_papers)
+    s = sub.add_parser("run", parents=[common],
+                       help="run a command and record it: commit, config, seed, data, outputs (exit code passes through)")
+    s.add_argument("--id", help="run id (default: date-time-random)")
+    s.add_argument("--outputs", nargs="*", metavar="PATH", help="outputs to record even if they didn't change")
+    s.add_argument("cmd", nargs=argparse.REMAINDER, help="-- the command and its arguments")
+    s.set_defaults(func=cmd_run)
+    s = sub.add_parser("record", parents=[common],
+                       help="write or complete a run record for a command run elsewhere (e.g. by gpu-spooler)")
+    s.add_argument("id", help="run id")
+    s.add_argument("--event", choices=["start", "finish", "fetch"], help="what happened (default: just update)")
+    s.add_argument("--command", help="the command line that ran")
+    s.add_argument("--cwd", help="its working directory, relative to the code repo")
+    s.add_argument("--commit", help="the commit it ran at (default: this repo's HEAD)")
+    s.add_argument("--dirty-count", type=int, default=0, help="uncommitted changes where it ran")
+    s.add_argument("--host", help="where it ran")
+    s.add_argument("--gpus", help="GPU indices")
+    s.add_argument("--spooler-job", type=int, help="gpu-spooler task id")
+    s.add_argument("--runner", help="what ran it, e.g. gpu-spooler")
+    s.add_argument("--started", help="start time (ISO or epoch seconds)")
+    s.add_argument("--finished", help="finish time (ISO or epoch seconds)")
+    s.add_argument("--exit-code", type=int, help="its exit code (marks it finished)")
+    s.add_argument("--outputs", nargs="*", metavar="PATH", help="output files or directories, hashed now")
+    s.set_defaults(func=cmd_record)
+    s = sub.add_parser("runs", parents=[common], help="list run records")
+    s.set_defaults(func=cmd_runs)
     s = sub.add_parser("tui", parents=[common],
                        help="browse papers, claims and their provenance (read-only; needs taura[tui])")
     s.add_argument("--all", action="store_true", help="start from the list of papers even inside a repo")
