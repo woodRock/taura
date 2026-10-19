@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import fnmatch
 import json
+import math
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -23,7 +24,7 @@ KINDS = ("macros", "table", "figure")
 KEY_PART = re.compile(r"^[A-Za-z0-9_.\-]+$")
 
 
-FORMAT_OPTIONS = ("decimals", "percent", "thousands", "sign")
+FORMAT_OPTIONS = ("decimals", "percent", "thousands", "sign", "sci", "round")
 
 
 @dataclass
@@ -32,14 +33,29 @@ class Format:
     percent: bool = False  # 0.912 -> 91.2 (the % sign stays in the .tex)
     thousands: bool = False  # 4396 -> 4{,}396
     sign: bool = False  # explicit + on positive numbers
+    sci: bool = False  # 0.00195 -> 2\\times10^{-3} (math mode); decimals apply to the mantissa
+    round: str = "nearest"  # or "up": for bounds such as p <= ..., so rounding never makes them false
+
+    def _round(self, x: float, decimals: int) -> float:
+        if self.round == "up":
+            return math.ceil(x * 10 ** decimals - 1e-9) / 10 ** decimals
+        if self.round != "nearest":
+            raise TauraError(f'format round must be "nearest" or "up", got {self.round!r}')
+        return float(f"{x:.{decimals}f}")
 
     def render(self, value, stat: str | None = None) -> str:
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise TauraError(f"cannot format non-number {value!r}")
+        if self.sci and value != 0 and stat != "n":
+            e = math.floor(math.log10(abs(value)))
+            m = self._round(abs(value) / 10.0 ** e, self.decimals)
+            if m >= 10:
+                m, e = m / 10, e + 1
+            return ("-" if value < 0 else "") + f"{m:.{self.decimals}f}\\times10^{{{e}}}"
         if stat == "n" or (isinstance(value, int) and not self.percent):
             s = f"{int(value):,}" if self.thousands else str(int(value))
         else:
-            x = value * 100 if self.percent else value
+            x = self._round(value * 100 if self.percent else value, self.decimals)
             s = f"{x:,.{self.decimals}f}" if self.thousands else f"{x:.{self.decimals}f}"
             if float(s.replace(",", "")) == 0:  # no "-0.000"
                 s = s.lstrip("-")

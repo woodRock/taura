@@ -48,7 +48,7 @@ def test_literals_skip_markup(repos):
     assert found == [
         (4, "0.598"), (4, "4,396"),
         (5, r"81.2\%"),
-        (6, "3.2"), (6, "0.40"), (6, "200"),
+        (6, "3.2"), (6, "-0.40"), (6, "200"),
         (8, "5"),
     ]  # not: preamble, \cite, \ref, widths, sep2015, comments, ignored line, tabular colspec
 
@@ -65,7 +65,8 @@ def test_match(repos):
     assert pct.candidates == ["joint/coverage"] and pct.strong
     assert "percent = true" in pct.format_hint and "decimals = 1" in pct.format_hint
     assert not by_text["200"].candidates and not by_text["5"].candidates  # small ints never match
-    assert not by_text["0.40"].strong
+    assert not by_text["-0.40"].strong and by_text["-0.40"].negative
+    assert not by_text["-0.40"].candidates  # negative number: positive results never match
 
 
 def test_seed_claim(repos):
@@ -84,6 +85,11 @@ def test_seed_claim(repos):
     (Format(sign=True, decimals=2), -0.001, None, "0.00"),
     (Format(sign=True), -0.5, None, "-0.500"),
     (Format(thousands=True), 3, "n", "3"),
+    (Format(sci=True, decimals=0, round="up"), 0.00195, None, r"2\times10^{-3}"),
+    (Format(sci=True, decimals=0, round="up"), 0.00102, None, r"2\times10^{-3}"),
+    (Format(sci=True, decimals=1), 0.000996, None, r"1.0\times10^{-3}"),
+    (Format(decimals=2, round="up"), 0.1365, None, "0.14"),
+    (Format(decimals=2, round="up"), 0.1301, None, "0.14"),
 ])
 def test_formats(fmt, value, stat, want):
     assert fmt.render(value, stat) == want
@@ -101,6 +107,23 @@ def test_format_globs(repos):
     (code / "ledger/artifacts.toml").write_text('[format.default]\ndigits = 3\n')
     with pytest.raises(TauraError, match="digits"):
         Ledger(code).format_for(None, None)
+
+
+def test_signs_and_scientific_bounds(tmp_path):
+    (tmp_path / "x.tex").write_text("Holm $p\\le2\\times10^{-3}$ over 5--40~min, $\\rho=-0.40$, pre-2015.\n")
+    found = {l.text: l for l in literals(tmp_path)}
+    assert set(found) == {r"2\times10^{-3}", "5", "40", "-0.40", "2015"}
+    p = found[r"2\times10^{-3}"]
+    assert (p.value, p.exponent, p.strong) == ("2", -3, False)
+    code = tmp_path / "code"
+    (code / "ledger/results").mkdir(parents=True)
+    (code / "ledger/artifacts.toml").write_text("")
+    (code / "ledger/results/w.json").write_text(json.dumps(
+        {"name": "w", "metrics": {"holm-p": {"max": 0.00195}, "rho": -0.4012}}))
+    by = {l.text: l for l in match(literals(tmp_path), Ledger(code))}
+    assert by[r"2\times10^{-3}"].candidates == ["w/holm-p/max"]
+    assert "sci = true" in by[r"2\times10^{-3}"].format_hint
+    assert by["-0.40"].candidates == ["w/rho"]
 
 
 def test_lines_outside_document_are_scanned_in_inputs(tmp_path):

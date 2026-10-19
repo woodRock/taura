@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import itertools
+import math
 import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -28,7 +29,12 @@ SKIP_ARGS = {
 }
 DIMENSION = re.compile(r"\d+(?:\.\d+)?\s*(?:pt|bp|cm|mm|in|em|ex|sp|\\(?:text|column|line)width|\\(?:text|paper)height)")
 NUMBER = re.compile(
-    r"(?<![\w.\\])(?P<num>\d{1,3}(?:(?:,|\{,\})\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)(?!\.?\d)(?P<pct>\s*\\%)?(?![A-Za-z])"
+    # an optional sign that is not part of a range ("5--40") or a word ("pre-2015")
+    r"(?P<sign>(?<![\w.\\-])-|\$-\$)?(?<![\w.\\])"
+    # 2\times10^{-3} as one number, or a plain number with optional thousands separators
+    r"(?:(?P<sci>(?P<mant>\d+(?:\.\d+)?)\s*\\times\s*10\^(?:\{(?P<exp>-?\d+)\}|(?P<exp1>\d)))"
+    r"|(?P<num>\d{1,3}(?:(?:,|\{,\})\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?))"
+    r"(?!\.?\d)(?P<pct>\s*\\%)?(?![A-Za-z])"
 )
 WORDS = {w: i for i, w in enumerate(
     "zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen "
@@ -70,8 +76,9 @@ def _mask_args(line: str) -> str:
                 j += 1
             out[i:j + 1] = " " * (j + 1 - i)
             i = j + 1
-    masked = "".join(out)
-    return DIMENSION.sub(lambda m: " " * len(m.group(0)), masked)
+    masked = DIMENSION.sub(lambda m: " " * len(m.group(0)), "".join(out))
+    # Blank control-word names (but keep \\times for 2\\times10^{-3}), so "\\le2" reads as "2".
+    return re.sub(r"\\(?!times(?![A-Za-z]))[A-Za-z]+", lambda m: " " * len(m.group(0)), masked)
 
 
 @dataclass
@@ -83,6 +90,8 @@ class Literal:
     value: str  # digits only: "4396", "2.5"
     percent: bool
     context: str
+    negative: bool = False
+    exponent: int | None = None  # 2\\times10^{-3}: value "2", exponent -3
     candidates: list[str] = field(default_factory=list)
     more: int = 0  # candidates beyond MAX_CANDIDATES
     suggestion: str | None = None  # \res{key} when exactly one candidate
@@ -103,6 +112,8 @@ class Literal:
     @property
     def strong(self) -> bool:
         """Precise enough that a match is unlikely to be a coincidence (what `check` warns on)."""
+        if self.exponent is not None:
+            return False  # p-value bounds: many results round to 2\\times10^{-3}
         if "." not in self.value:
             return True  # integers only match at >= 100
         return self.percent or len(self.value.split(".")[1]) >= 3
@@ -189,13 +200,17 @@ def literals(paper: Path) -> list[Literal]:
                 lead = len(code) - len(code.lstrip())
                 for n in NUMBER.finditer(_mask_args(code)):
                     lit_text = code[n.start():n.end()].strip()
-                    value = re.sub(r"\{,\}|,", "", n.group("num"))
+                    if n.group("sci"):
+                        value, exponent = n.group("mant"), int(n.group("exp") or n.group("exp1"))
+                    else:
+                        value, exponent = re.sub(r"\{,\}|,", "", n.group("num")), None
                     ctx = code[max(0, n.start() - 40):n.end() + 40].strip()
                     pos = starts[i] + n.start() - lead
                     sent = next((text[a:b] for a, b in sentences if a <= pos < b), text)
                     lo = max(0, pos - PARAGRAPH_CHARS // 2)
                     out.append(Literal(
                         rel, i, n.start() + 1, lit_text, value, bool(n.group("pct")), ctx,
+                        negative=bool(n.group("sign")), exponent=exponent,
                         id=literal_id(rel, lit_text, code[:n.start()], code[n.end():]), sentence=sent.strip(),
                         paragraph=("…" if lo else "") + text[lo:lo + PARAGRAPH_CHARS].strip(),
                         section=section, in_caption=r"\caption" in text[:pos],
@@ -215,6 +230,14 @@ def _dedupe_ids(lits: list[Literal]) -> None:
 
 
 def _matches(lit: Literal, v: float | int, stat: str | None) -> bool:
+    if isinstance(v, bool) or (lit.negative and v >= 0):
+        return False
+    if lit.exponent is not None:  # 2\\times10^{-3}: the mantissa rounded, or rounded up (a bound)
+        if v <= 0 or stat == "n":
+            return False
+        d = len(lit.value.split(".")[1]) if "." in lit.value else 0
+        m = v / 10.0 ** lit.exponent
+        return f"{m:.{d}f}" == lit.value or f"{math.ceil(m * 10 ** d - 1e-9) / 10 ** d:.{d}f}" == lit.value
     if "." not in lit.value:  # integers: only large ones; small ones are too often coincidences
         return isinstance(v, int) and not isinstance(v, bool) and int(lit.value) >= 100 and v == int(lit.value)
     decimals = len(lit.value.split(".")[1])
@@ -235,6 +258,8 @@ def _format_hint(lit: Literal, key: str, rendered: str) -> str | None:
         opts.append("percent = true")
     if "," in lit.text:
         opts.append("thousands = true")
+    if lit.exponent is not None:
+        opts += ["sci = true", 'round = "up"']
     return f'[format."{key}"] ' + ", ".join(opts) if opts else None
 
 
