@@ -118,7 +118,7 @@ class Literal:
         if self.exponent is not None:
             return False  # p-value bounds: many results round to 2\\times10^{-3}
         if "." not in self.value:
-            return True  # integers only match at >= 100
+            return self.percent or int(self.value) >= 100  # small counts often match by coincidence
         return self.percent or len(self.value.split(".")[1]) >= 3
 
     def to_dict(self) -> dict:
@@ -248,8 +248,8 @@ def _matches(lit: Literal, v: float | int, stat: str | None) -> bool:
             return True
         # a bound such as p <= 2\\times10^{-3} may be rounded up; a bare 10^{-3} states a value
         return "times" in lit.text and f"{math.ceil(m * 10 ** d - 1e-9) / 10 ** d:.{d}f}" == lit.value
-    if "." not in lit.value and not lit.percent:  # integers: only large ones; small ones are often coincidences
-        return isinstance(v, int) and int(lit.value) >= 100 and v == int(lit.value)
+    if "." not in lit.value and not lit.percent:  # integers match recorded integers (counts), not floats;
+        return isinstance(v, int) and v == int(lit.value)  # small ones aren't strong (check stays quiet)
     if stat == "n":
         return False
     decimals = len(lit.value.split(".")[1]) if "." in lit.value else 0

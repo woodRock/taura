@@ -162,3 +162,14 @@ def test_packet_caps_candidates_and_agent_errors_on_stdout_are_shown(tmp_path):
     agent.write_text("import sys\nsys.stdin.read()\nprint('Prompt is too long')\nsys.exit(1)\n")
     _, problems = decisions.ask_agent(f"{sys.executable} {agent}", [lit])
     assert problems == [f"batch 1: {Path(sys.executable).name} exited 1: Prompt is too long"]
+
+
+def test_small_counts_are_candidates_but_not_strong():
+    """16/20 broken worlds: an agent can link the 16, but check doesn't warn about every typed 16."""
+    from taura.claims import Literal, _matches
+
+    lit = Literal(file="main.tex", line=1, col=0, text="16", value="16", percent=False, context="")
+    assert _matches(lit, 16, "broken") and not _matches(lit, 16.0, "mean") and not _matches(lit, 15, "x")
+    assert not lit.strong
+    big = Literal(file="main.tex", line=1, col=0, text="240", value="240", percent=False, context="")
+    assert big.strong and _matches(big, 240, "worlds")
