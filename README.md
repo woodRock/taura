@@ -97,6 +97,15 @@ path = "configs/finetune.yaml"           # YAML (needs PyYAML: taura[yaml]), TOM
 [settings.align]
 path = "scripts/01_multibatch_align.py"  # Python: module-level UPPER_CASE = literal constants and
 names = ["N_FOLDS", "RT_BLOCK"]          # argparse defaults, read with ast, never run (names: optional)
+
+[settings.neural]
+path = "src/pkg/neural.py"               # names can also pick dataclass fields and keyword defaults:
+names = ["TrainConfig", "Model.d_emb"]   # TrainConfig.steps, ..., and Model.__init__'s d_emb
+
+[settings.match]
+module = "alignbench.anchors"            # an installed module (e.g. a dependency in another repo),
+python = "python3.11"                    # located with this interpreter; its file hash is recorded
+names = ["MatchConfig.sim_threshold"]
 ```
 
 Each becomes a result named `settings-<name>`, e.g.
@@ -104,8 +113,8 @@ Each becomes a result named `settings-<name>`, e.g.
 `…/count`, `…/min` and `…/max`. `adopt` offers settings keys as candidates for
 typed hyperparameters, and a typed value that disagrees with the config simply
 doesn't match. Settings are published and locked like results, so a config
-change since publishing is flagged. Values set inside functions aren't found,
-so quote those by hand. After adding settings,
+change since publishing is flagged. Literals inside function bodies aren't found
+(name them as constants or defaults first), so quote those by hand. After adding settings,
 `taura adopt --agent CMD --redo not-a-result` re-asks about numbers decided
 before they existed.
 

@@ -107,3 +107,64 @@ def test_redo_asks_again(env, capsys, tmp_path):
                 "--redo", "not-a-result")
     decided = {l["text"]: l["decision"] for l in r["literals"] if l["decision"]}
     assert decided["200"]["key"] == "settings-train/n_boot"
+
+
+MODEL = '''
+from dataclasses import dataclass
+S_MIN, S_MAX = 0.5, 2.0
+GAUGE = 1e3
+
+@dataclass
+class TrainConfig:
+    steps: int = 1500
+    lr: float = 3e-3
+    blur: tuple = (2.0, 1.0, 0.5)
+    seed: int = 0
+    name: str = "x"
+
+class Model:
+    def __init__(self, x, d_emb: int = 8, hidden: int = 64, *, act=None):
+        pass
+
+    def fit(self, data, steps=200):
+        pass
+
+def harvest(study, max_drift_min=20.0, sim_threshold=0.30):
+    pass
+'''
+
+
+def test_tuples_class_fields_and_keyword_defaults(tmp_path):
+    (tmp_path / "model.py").write_text(MODEL)
+    found = settings.python_settings(tmp_path / "model.py")
+    assert found == {"S_MIN": 0.5, "S_MAX": 2.0, "GAUGE": 1e3}  # classes and functions only when named
+    found = settings.python_settings(tmp_path / "model.py",
+                                     ["S_MIN", "TrainConfig", "Model.d_emb", "Model.fit", "harvest.sim_threshold"])
+    assert found["S_MIN"] == 0.5 and "S_MAX" not in found
+    assert found["TrainConfig.steps"] == 1500 and found["TrainConfig.lr"] == 3e-3
+    assert found["TrainConfig.blur"] == {"count": 3, "min": 0.5, "max": 2.0}
+    assert "TrainConfig.name" not in found  # strings aren't numbers
+    assert found["Model.d_emb"] == 8 and "Model.hidden" not in found and found["Model.fit.steps"] == 200
+    assert found["harvest.sim_threshold"] == 0.30 and "harvest.max_drift_min" not in found
+    with pytest.raises(TauraError, match="TrainConfig.nope"):
+        settings.python_settings(tmp_path / "model.py", ["TrainConfig.nope"])
+
+
+def test_settings_from_an_installed_module(tmp_path, monkeypatch):
+    import sys
+
+    pkg = tmp_path / "site" / "fakebench"
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text("")
+    (pkg / "anchors.py").write_text(MODEL)
+    monkeypatch.setenv("PYTHONPATH", str(tmp_path / "site"))
+    code = tmp_path / "code"
+    code.mkdir()
+    (code / "taura.toml").write_text(f'[settings.match]\nmodule = "fakebench.anchors"\npython = "{sys.executable}"\n'
+                                     'names = ["harvest"]\n')
+    r = settings.load(code)["settings-match"]
+    assert r["metrics"] == {"harvest.max_drift_min": 20.0, "harvest.sim_threshold": 0.30}
+    assert r["source"]["module"] == "fakebench.anchors" and r["source"]["hash"].startswith("sha256:")
+    (code / "taura.toml").write_text(f'[settings.match]\nmodule = "nope.nothing"\npython = "{sys.executable}"\n')
+    with pytest.raises(TauraError, match="can't find the source of nope.nothing"):
+        settings.load(code)
