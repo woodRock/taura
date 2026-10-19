@@ -243,3 +243,12 @@ def test_repeats_of_cross_validation_are_seeds(tmp_path):
                                  "\n\nAnd 7 repetitions give \\res{cnn/ba/mean}.\n")
     claims = seed_claims(paper, Ledger(code))
     assert [(c.line, c.claimed, c.actual) for c in claims] == [(4, 7, 10)]
+
+
+def test_power_of_ten_before_a_variable():
+    from taura.claims import NUMBER
+
+    found = lambda t: [m.group(0) for m in NUMBER.finditer(t)]  # noqa: E731
+    assert found(r"$\gamma=10^3N_{\mathrm{eff}}/Q$") == ["10^3"]
+    assert found(r"$3\times10^{-3}N$") == [r"3\times10^{-3}"]
+    assert found("a 3D chromatogram, the 2nd batch") == []

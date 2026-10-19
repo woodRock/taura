@@ -36,7 +36,9 @@ NUMBER = re.compile(
     # a bare power of ten: 10^{-3} (a learning rate), read as 1 x 10^-3
     r"|(?P<pow>10\^(?:\{(?P<pexp>-?\d+)\}|(?P<pexp1>\d)))"
     r"|(?P<num>\d{1,3}(?:(?:,|\{,\})\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?))"
-    r"(?!\.?\d)(?P<pct>\s*\\%)?(?![A-Za-z])"
+    # a plain number followed by a letter is part of a word or unit ("3D", "2nd"); a power of ten
+    # followed by one is a product in math ("10^3N_{eff}")
+    r"(?!\.?\d)(?P<pct>\s*\\%)?(?(sci)|(?(pow)|(?![A-Za-z])))"
 )
 WORDS = {w: i for i, w in enumerate(
     "zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen "
