@@ -193,6 +193,20 @@ key's own decimals), for a bound stated
 next to the value itself ("less than 0.003" where the table says 0.002), and
 `"down"` a lower bound. Each is checked like the key itself.
 
+## Timings
+
+How long the pipeline takes is a result too. Name the scripts in `taura.toml`:
+
+```toml
+[timings.evaluation]
+scripts = ["scripts/01_align.py", "scripts/03_benchmark.py"]
+```
+
+`timing-evaluation` then holds `minutes` and `seconds`: the sum, over the scripts,
+of the newest successful run of each in `ledger/runs/` (from `taura run` or
+gpu-spooler). Write "takes about \res{timing-evaluation/minutes}~min" with a
+`decimals = 0` format, and a rerun updates it like any other result.
+
 ## Numbers in prose
 
 `taura adopt` lists every number typed into the paper body, ignoring the

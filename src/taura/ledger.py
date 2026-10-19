@@ -206,13 +206,14 @@ class Ledger:
 
     @property
     def results(self) -> dict[str, dict]:
-        """The exported results, plus the settings declared in taura.toml (as settings-<name>)."""
+        """The exported results, plus the settings and timings declared in taura.toml (as settings-<name>
+        and timing-<name>)."""
         if self._results is None:
-            from . import settings
-            exported, declared = load_results(self.code), settings.load(self.code)
+            from . import settings, timings
+            exported, declared = load_results(self.code), settings.load(self.code) | timings.load(self.code)
             clash = sorted(set(exported) & set(declared))
             if clash:
-                raise TauraError(f"{RESULTS_DIR}: {', '.join(clash)} clash with [settings] in taura.toml")
+                raise TauraError(f"{RESULTS_DIR}: {', '.join(clash)} clash with [settings] or [timings] in taura.toml")
             self._results = exported | declared
         return self._results
 
