@@ -253,8 +253,9 @@ def _matches(lit: Literal, v: float | int, stat: str | None) -> bool:
             return True
         # a bound such as p <= 2\\times10^{-3} may be rounded up; a bare 10^{-3} states a value
         return "times" in lit.text and f"{math.ceil(m * 10 ** d - 1e-9) / 10 ** d:.{d}f}" == lit.value
-    if "." not in lit.value and not lit.percent:  # integers match recorded integers (counts), not floats;
-        return isinstance(v, int) and v == int(lit.value)  # small ones aren't strong (check stays quiet)
+    if "." not in lit.value and not lit.percent:  # integers match recorded whole numbers (counts, or a
+        whole = isinstance(v, int) or (isinstance(v, float) and v.is_integer())  # setting such as 20.0),
+        return whole and v == int(lit.value)  # not a mean that rounds to it; small ones aren't strong
     if stat == "n":
         return False
     decimals = len(lit.value.split(".")[1]) if "." in lit.value else 0

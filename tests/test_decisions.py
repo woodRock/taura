@@ -169,7 +169,8 @@ def test_small_counts_are_candidates_but_not_strong():
     from taura.claims import Literal, _matches
 
     lit = Literal(file="main.tex", line=1, col=0, text="16", value="16", percent=False, context="")
-    assert _matches(lit, 16, "broken") and not _matches(lit, 16.0, "mean") and not _matches(lit, 15, "x")
+    assert _matches(lit, 16, "broken") and _matches(lit, 16.0, "max_drift_min") and not _matches(lit, 16.2, "mean")
+    assert not _matches(lit, 15, "x")
     assert not lit.strong
     big = Literal(file="main.tex", line=1, col=0, text="240", value="240", percent=False, context="")
     assert big.strong and _matches(big, 240, "worlds")
@@ -203,3 +204,15 @@ def test_rewriting_a_signed_neighbour_keeps_the_id_and_old_ids_still_apply(tmp_p
     d = decisions.Decision(old.legacy_id, "main.tex", r"0\%", "", "not-a-result", reason="a rate")
     decisions.save(tmp_path, {d.id: d})
     assert set(decisions.load(tmp_path, lits)) == {old.id}
+
+
+def test_packet_lists_settings_first():
+    from taura import decisions
+    from taura.claims import Literal
+
+    opts = [{"key": f"band/{i}/x", "renders_as": "0.5", "result_label": "r", "metric": str(i), "stat": "x"}
+            for i in range(decisions.MAX_CANDIDATES + 5)]
+    opts.append({"key": "settings-model/S_MIN", "renders_as": "0.5", "result_label": "s", "metric": "S_MIN",
+                 "stat": None})
+    lit = Literal(file="main.tex", line=1, col=0, text="0.5", value="0.5", percent=False, context="", options=opts)
+    assert decisions.packet(lit)["candidates"][0]["key"] == "settings-model/S_MIN"

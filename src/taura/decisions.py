@@ -25,6 +25,7 @@ from . import NAME, tomlio
 from .claims import Literal
 from .errors import TauraError
 from .ledger import LEDGER
+from .settings import PREFIX as SETTINGS_PREFIX
 
 DECISIONS_FILE = f"{LEDGER}/adopt.toml"
 VERDICTS = ("result", "not-a-result", "unrecorded")
@@ -143,12 +144,18 @@ Items:
 MAX_CANDIDATES = 40  # a typed 0 or 0\% can match thousands of recorded zeros; the prompt must stay small
 
 
+def _ranked(options: list[dict]) -> list[dict]:
+    """Settings first: a stated hyperparameter is far likelier than one of many coincidental results,
+    and a cap must not drop it."""
+    return sorted(options, key=lambda o: not o["key"].startswith(SETTINGS_PREFIX))
+
+
 def packet(lit: Literal) -> dict:
     out = {
         "id": lit.id, "number": lit.text, "location": lit.location, "section": lit.section,
         "in_caption": lit.in_caption, "sentence": lit.sentence, "paragraph": lit.paragraph,
         "candidates": [{k: o[k] for k in ("key", "renders_as", "result_label", "metric", "stat")}
-                       for o in lit.options[:MAX_CANDIDATES]],
+                       for o in _ranked(lit.options)[:MAX_CANDIDATES]],
     }
     if len(lit.options) > MAX_CANDIDATES:
         out["more_candidates"] = len(lit.options) - MAX_CANDIDATES
