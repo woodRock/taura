@@ -222,8 +222,8 @@ def check_figures(paper: Path, code: Path) -> list[Finding]:
 def _shown(s: str) -> str:
     """A number as a reader sees it: 4{,}396, 4,396 and 4396 compare equal; 81.2\\% equals 81.2. A
     leading + is dropped: the typed literal never includes it (a typed "+0.0006" is the number 0.0006
-    after a sign), while a format with sign = true prints it."""
-    return re.sub(r"\{,\}|,|\\%|\$|\s", "", s.replace("$-$", "-")).lstrip("+")
+    after a sign), while a format with sign = true prints it. Braces only group: 10^{4} is 10^4."""
+    return re.sub(r"\{,\}|,|\\%|\$|\s|[{}]", "", s.replace("$-$", "-")).lstrip("+")
 
 
 def check_prose(paper: Path, ledger: Ledger) -> list[Finding]:

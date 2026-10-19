@@ -181,6 +181,7 @@ def test_shown_ignores_a_printed_plus_sign():
 
     assert _shown("+0.0006") == _shown("0.0006") and _shown("$-$0.0040") == "-0.0040"
     assert _shown("4{,}396") == "4396" and _shown(r"81.2\%") == "81.2"
+    assert _shown("10^{4}") == _shown("10^4")
 
 
 def test_rewriting_a_signed_neighbour_keeps_the_id_and_old_ids_still_apply(tmp_path):
