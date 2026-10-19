@@ -293,6 +293,18 @@ def check_prose(paper: Path, ledger: Ledger) -> list[Finding]:
 # ---- code-side checks ------------------------------------------------------------
 
 
+def _rebuilds_identically(ledger: Ledger, art, entry: dict) -> bool:
+    """Would building the artifact now give exactly the published content? (provenance-only change)"""
+    import tempfile
+
+    from .build import build_one
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            return build_one(ledger, art, Path(tmp), "check").hash == entry.get("hash")
+    except TauraError:
+        return False
+
+
 def check_stale(ledger: Ledger, lock: dict) -> list[Finding]:
     out = []
     fix = "run `taura diff` to review, then `taura publish`"
@@ -325,7 +337,11 @@ def check_stale(ledger: Ledger, lock: dict) -> list[Finding]:
         src = ledger.code / art.source if art.source else None
         if src is not None and src.is_file() and content_hash(src) != entry.get("hash"):
             reasons.append(f"{art.source} changed")
-        if reasons:
+        if reasons and entry.get("output") == art.output and _rebuilds_identically(ledger, art, entry):
+            out.append(Finding("provenance-changed", "warn", "code", name,
+                               f"{name}'s inputs changed ({'; '.join(reasons)}) but it rebuilds identically: "
+                               "the paper doesn't change", "`taura publish` to record the new provenance in the lock"))
+        elif reasons:
             out.append(Finding("stale-artifact", "error", "code", name, f"{name} is stale: {'; '.join(reasons)}", fix))
     for name, art in ledger.artifacts.items():
         if not art.source:

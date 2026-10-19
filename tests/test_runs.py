@@ -146,3 +146,38 @@ def test_record_as_gpu_spooler_calls_it(env, capsys):
     assert Path(code / f"ledger/runs/{rid}.toml").is_file()
     rc, r = run(capsys, "-C", str(code), "record", "bad id!", "--event", "start")
     assert rc == 2
+
+
+def test_dirty_ignores_taura_files_and_earlier_outputs(env, capsys):
+    """A pipeline: step 1 rewrites a tracked report; step 2 must not be recorded as dirty for it."""
+    code, _ = prepare(env, capsys)
+    (code / ".gitignore").write_text(".taura/\n")  # results/ tracked this time
+    (code / "results").mkdir()
+    (code / "results/out.json").write_text("{}")
+    commit_all(code, "track results")
+    rc, first = taura_run(capsys, code)
+    assert first["dirty"] is False
+    assert git(code, "status", "--porcelain").strip()  # results/out.json (tracked) changed
+    (code / "ledger/results/mba.json").write_text((code / "ledger/results/mba.json").read_text() + " ")
+    rc, second = taura_run(capsys, code, seed="4")
+    assert second["dirty"] is False, runsmod.uncommitted_code(code)
+    (code / "configs/a.yaml").write_text("lr: 0.2\n")  # a real edit
+    rc, third = taura_run(capsys, code, seed="5")
+    assert third["dirty"] is True and runsmod.uncommitted_code(code) == ["configs/a.yaml"]
+
+
+def test_provenance_only_change_is_a_warning(env, capsys):
+    code, paper = prepare(env, capsys)
+    assert run(capsys, "-C", str(code), "publish")[0] == 0
+    mba = json.loads((code / "ledger/results/mba.json").read_text())
+    mba["source"] = {"path": "results/x.npz", "provenance": ["joint-align @ abc1234"]}  # values unchanged
+    (code / "ledger/results/mba.json").write_text(json.dumps(mba))
+    commit_all(code, "new provenance")
+    rc, r = run(capsys, "-C", str(code), "check")
+    ids = {f["id"]: f for f in r["findings"]}
+    assert "stale-artifact" not in ids and {"provenance-changed"} == set(ids)
+    assert ids["provenance-changed"]["severity"] == "warn" and r["errors"] == 0
+    mba["metrics"]["f1"]["mean"] = 0.95  # a real change is still an error
+    (code / "ledger/results/mba.json").write_text(json.dumps(mba))
+    rc, r = run(capsys, "-C", str(code), "check")
+    assert any(f["id"] == "stale-artifact" for f in r["findings"])

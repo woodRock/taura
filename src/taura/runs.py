@@ -28,7 +28,7 @@ from . import gitutil, tomlio
 from .discovery import CONFIG_FILE
 from .errors import TauraError
 from .hashing import content_hash, sha256_bytes, sha256_file
-from .ledger import RUNS_DIR
+from .ledger import LEDGER, RUNS_DIR
 
 CACHE = Path(gitutil.STAGING_DIR) / "data-cache.json"
 CODE_SUFFIXES = (".py", ".sh", ".r", ".jl", ".m", ".ipynb")
@@ -150,7 +150,7 @@ def git_state(code: Path, commit: str | None = None, dirty_count: int | None = N
         return {"commit": commit or "unknown", "dirty": bool(dirty_count)}
     if commit is None:
         commit = gitutil.head(code) or "unknown"
-        dirty = gitutil.is_dirty_except(code, [RUNS_DIR])
+        dirty = bool(uncommitted_code(code))
     else:
         dirty = bool(dirty_count)
     out = {"commit": commit, "dirty": dirty}
@@ -160,6 +160,23 @@ def git_state(code: Path, commit: str | None = None, dirty_count: int | None = N
         if len(parents.split()) >= 2 and "gpu-spooler sync" in subject:
             out["dirty"], out["base_commit"] = True, parents.split()[0]
     return out
+
+
+def uncommitted_code(code: Path) -> list[str]:
+    """Uncommitted changes that could affect a run: everything except taura's own files (ledger/,
+    .taura/) and files whose content is the recorded output of a run (an earlier step of a pipeline
+    rewriting a tracked report is not a code edit)."""
+    r = gitutil.git(code, "status", "--porcelain", "--", ".", f":(exclude){gitutil.STAGING_DIR}",
+                    f":(exclude){LEDGER}", check=False)
+    outputs = set(Index(code).by_hash) if r.stdout.strip() else set()
+    changed = []
+    for line in r.stdout.splitlines():
+        rel = line[3:].split(" -> ")[-1].strip('"')
+        f = code / rel
+        if f.is_file() and content_hash(f) in outputs:
+            continue
+        changed.append(rel)
+    return changed
 
 
 def commit_exists(code: Path, commit: str) -> bool:
