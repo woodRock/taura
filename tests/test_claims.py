@@ -157,3 +157,18 @@ def test_results_globs(repos):
     led = Ledger(code)
     assert led.artifacts["all"].results == ["joint", "mba", "other", "pairs"]
     assert led.artifacts["some"].results == ["joint", "pairs"]
+
+
+def test_seed_claims_compare_seeds_and_folds(tmp_path):
+    code = tmp_path / "code"
+    (code / "ledger/results").mkdir(parents=True)
+    (code / "ledger/artifacts.toml").write_text("")
+    (code / "ledger/results/cnn.json").write_text(json.dumps(
+        {"name": "cnn", "metrics": {"ba": {"mean": 0.854, "n": 50, "seeds": 10, "folds": 5}}}))
+    paper = tmp_path / "paper"
+    paper.mkdir()
+    (paper / "m.tex").write_text("Over 10 seeds and 5 folds we get \\res{cnn/ba/mean}.\n"
+                                 "Over 12 seeds we get \\res{cnn/ba/mean}.\n"
+                                 "Over 50 runs we get \\res{cnn/ba/mean}.\n")
+    claims = seed_claims(paper, Ledger(code))
+    assert [(c.line, c.claimed, c.actual) for c in claims] == [(2, 12, 10)]

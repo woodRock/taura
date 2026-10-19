@@ -327,7 +327,11 @@ def seed_claims(paper: Path, ledger: Ledger) -> list[SeedClaim]:
                     metric = ledger.result(parts[0])["metrics"].get(parts[1])
                 except TauraError:
                     continue
-                n = metric.get("n") if isinstance(metric, dict) else None
+                if not isinstance(metric, dict):
+                    continue
+                # "10 seeds x 5 folds" with n = 50: compare seeds with seeds, folds with folds, runs with n
+                stat = {"seed": "seeds", "fold": "folds"}.get(m.group("what").lower().rstrip("s"), "n")
+                n = metric.get(stat, metric.get("n"))
                 if isinstance(n, int) and n != claimed:
                     out.append(SeedClaim(rel, i, claimed, m.group("what"), key, n))
     return out

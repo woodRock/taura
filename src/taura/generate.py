@@ -114,7 +114,7 @@ def parse_macros(body: str) -> dict[str, str]:
 
 PM = r" $\pm$ "
 MISSING = "--"
-LAYOUT_KEYS = ("rules", "colspec", "bold", "bold_by", "group_align")
+LAYOUT_KEYS = ("rules", "colspec", "bold", "bold_by", "group_align", "math")
 RULES = {"booktabs": (r"\toprule", r"\midrule", r"\bottomrule"), "hline": (r"\hline",) * 3}
 RULE_LINES = {r"\toprule", r"\midrule", r"\bottomrule", r"\hline"}
 
@@ -124,23 +124,30 @@ def _num(fmt: Format, x) -> str:
     return "$-$" + s[1:] if s.startswith("-") else s
 
 
-def _render_cell(cell, fmt: Format) -> tuple[str, str | None]:
-    """(LaTeX text, the displayed number used for bolding or None)."""
+def _render_cell(cell, fmt: Format, math: bool = False) -> tuple[str, str | None]:
+    """(LaTeX text, the displayed number used for bolding or None). math: numbers as $0.854 \\pm 0.101$."""
     if cell is None:
         return MISSING, None
     if isinstance(cell, str):
         return cell, None
+    num = fmt.render if math else (lambda x: _num(fmt, x))
     if isinstance(cell, dict):
         if "mean" not in cell:
             raise TauraError(f"table cell {cell!r} needs a `mean`")
-        mean = fmt.render(cell["mean"])
-        text = _num(fmt, cell["mean"])
+        text = num(cell["mean"])
         if cell.get("std") is not None:
-            text += PM + _num(fmt, cell["std"])
-        return text, mean
+            text += (r" \pm " if math else PM) + num(cell["std"])
+        return (f"${text}$" if math else text), fmt.render(cell["mean"])
     if isinstance(cell, (int, float)) and not isinstance(cell, bool):
-        return _num(fmt, cell), fmt.render(cell)
+        return (f"${num(cell)}$" if math else num(cell)), fmt.render(cell)
     raise TauraError(f"unsupported table cell {cell!r}")
+
+
+def _bold(text: str) -> str:
+    """Bold a cell: $x$ becomes $\\mathbf{x}$ (math), anything else \\textbf{x}."""
+    if len(text) > 1 and text.startswith("$") and text.endswith("$"):
+        return rf"$\mathbf{{{text[1:-1]}}}$"
+    return rf"\textbf{{{text}}}"
 
 
 def layout(spec: dict, options: dict) -> dict:
@@ -176,7 +183,7 @@ def render_table(spec: dict, formats, options: dict) -> tuple[str, list[str], st
     col_fmt = [formats(c.get("metric")) for c in columns]
     data = [i for i, r in enumerate(rows) if isinstance(r, list)]
     cells: dict[int, list[tuple[str, str | None]]] = {
-        i: [_render_cell(cell, col_fmt[j]) for j, cell in enumerate(rows[i])] for i in data
+        i: [_render_cell(cell, col_fmt[j], bool(lay.get("math"))) for j, cell in enumerate(rows[i])] for i in data
     }
 
     numeric = [any(cells[i][j][1] is not None for i in data) for j in range(ncol)]
@@ -198,7 +205,7 @@ def render_table(spec: dict, formats, options: dict) -> tuple[str, list[str], st
         for i, j in group:
             text, val = cells[i][j]
             if val is not None and float(val) == best:
-                cells[i][j] = (rf"\textbf{{{text}}}", val)
+                cells[i][j] = (_bold(text), val)
 
     if lay["bold_by"] == "column":
         for j, rule in enumerate(bold_rules):
@@ -251,13 +258,15 @@ def parse_table(body: str) -> tuple[list[str], list[list[str]]]:
 
 
 def plain(cell: str) -> str:
-    """A table cell as a reader would see it: 0.912 ± 0.008."""
-    s = re.sub(r"\\textbf\{(.*)\}", r"\1", cell)
-    return s.replace(PM.strip(), "±").replace("$-$", "-")
+    """A table cell as a reader would see it: 0.912 ± 0.008, 1.1×10^-8 (text or math mode)."""
+    s = re.sub(r"\\(?:textbf|mathbf)\{(.*)\}", r"\1", cell)
+    s = s.replace(PM.strip(), "±").replace("$-$", "-").replace("{,}", ",")
+    s = re.sub(r"\s*\\times\s*10\^\{?(-?\d+)\}?", r"×10^\1", s)
+    return re.sub(r"\s*\\pm\s*", " ± ", s).replace("$", "").strip()
 
 
 def is_bold(cell: str) -> bool:
-    return cell.startswith(r"\textbf{")
+    return cell.startswith((r"\textbf{", r"$\mathbf{"))
 
 
 def leading_number(cell: str) -> float | None:

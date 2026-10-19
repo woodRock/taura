@@ -72,3 +72,18 @@ def test_row_bold_mismatch(tmp_path):
     lock = {"artifacts": {"t": {"output": "generated/t.tex", "bold": bold, "bold_by": bold_by}}}
     [f] = check_bold(tmp_path, lock)
     assert f.id == "bold-mismatch" and "sep15" in f.location and "Unal." in f.message and "Joint" in f.message
+
+
+def test_math_cells():
+    spec = {"columns": [{"label": "Method"}, {"label": "BA", "metric": "ba"}, {"label": "$p$", "metric": "p", "bold": "none"}],
+            "rows": [["\\textbf{Best}", {"mean": 0.85405, "std": 0.10149}, "---"],
+                     ["SVM", {"mean": 0.69807, "std": 0.10152}, 1.126e-08]]}
+    formats = {"ba": Format(decimals=3), "p": Format(sci=True, decimals=1)}
+    body, bold, _ = render_table(spec, lambda m: formats.get(m, Format()), {"math": True, "bold": "max"})
+    lines = body.splitlines()
+    assert lines[4] == r"\textbf{Best} & $\mathbf{0.854 \pm 0.101}$ & --- \\"
+    assert lines[5] == r"SVM & $0.698 \pm 0.102$ & $1.1\times10^{-8}$ \\"
+    header, rows = parse_table(body)
+    from taura.generate import is_bold, leading_number, plain
+    assert is_bold(rows[0][1]) and not is_bold(rows[1][1])
+    assert leading_number(rows[0][1]) == 0.854 and plain(rows[1][2]) == "1.1×10^-8"
