@@ -315,7 +315,7 @@ def seed_claims(paper: Path, ledger: Ledger) -> list[SeedClaim]:
         if IGNORE in raw:
             continue
         nearby = [code] + [lines[j][2] for j in (idx - 1, idx + 1) if 0 <= j < len(lines) and lines[j][0] == rel]
-        keys = [m.group(1) for text in nearby for m in RES_USE.finditer(text)]
+        keys = list(dict.fromkeys(m.group(1) for text in nearby for m in RES_USE.finditer(text)))
         for m in REPEATS.finditer(_mask_args(code)):
             raw_n = m.group("n").lower()
             claimed = WORDS[raw_n] if raw_n in WORDS else int(raw_n)
