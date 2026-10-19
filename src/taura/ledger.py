@@ -27,13 +27,18 @@ KEY_PART = re.compile(r"^[A-Za-z0-9_.\-]+$")
 
 
 FORMAT_OPTIONS = ("decimals", "percent", "thousands", "sign", "sci", "round", "variants")
-VARIANT = "@"  # \res{key@2}: the same value printed with 2 decimals (declared with variants = [2])
+VARIANT = "@"  # \res{key@2}: the value with 2 decimals; \res{key@up}: rounded up (declared with variants)
+ROUNDINGS = ("up", "down")
 
 
-def base_key(key: str) -> tuple[str, int | None]:
-    """key@2 -> (key, 2); key -> (key, None)."""
+def base_key(key: str) -> tuple[str, int | str | None]:
+    """key@2 -> (key, 2); key@up -> (key, "up"); key -> (key, None)."""
     base, sep, d = key.rpartition(VARIANT)
-    return (base, int(d)) if sep and d.isdigit() else (key, None)
+    if sep and d.isdigit():
+        return base, int(d)
+    if sep and d in ROUNDINGS:
+        return base, d
+    return key, None
 
 
 @dataclass
@@ -45,7 +50,8 @@ class Format:
     sci: bool | str = False  # True: 0.00195 -> 2\\times10^{-3} (math mode; decimals apply to the
     #                          mantissa). "power": like True, but a mantissa of 1 prints as 10^{-3}
     round: str = "nearest"  # "up" for upper bounds (p <= ...), "down" for lower bounds (r >= ...)
-    variants: list = field(default_factory=list)  # also publish key@N with N decimals (a rounded restatement)
+    variants: list = field(default_factory=list)  # also publish key@N (N decimals: a rounded restatement)
+    #                                                 and key@up / key@down (a bound: "less than 0.003")
 
     def _round(self, x: float, decimals: int) -> float:
         if self.round == "up":
@@ -235,14 +241,16 @@ class Ledger:
 
     def render_key(self, key: str) -> str | None:
         """What \\res{key} prints from the results now; key@N prints with N decimals. None if unknown."""
-        base, decimals = base_key(key)
+        base, variant = base_key(key)
         keys = self.all_keys()
         if base not in keys:
             return None
         result, metric, stat, v = keys[base]
         fmt = self.format_for(result, metric, base)
-        if decimals is not None:
-            fmt = dataclasses.replace(fmt, decimals=decimals)
+        if isinstance(variant, int):
+            fmt = dataclasses.replace(fmt, decimals=variant)
+        elif variant is not None:
+            fmt = dataclasses.replace(fmt, round=variant)
         return fmt.render(v, stat)
 
     def all_keys(self) -> dict[str, tuple[str, str, str | None, object]]:

@@ -210,6 +210,26 @@ def test_precision_variants(env, capsys):
     assert (item["printed"], item["current"]) == ("0.91", "0.91") and item["result"]["key"] == "mba/f1/mean"
 
 
+def test_bound_variants(env, capsys):
+    """A bound ("less than 0.92" for 0.912) as \\res{key@up}, and a lower bound as \\res{key@down}."""
+    from test_e2e import commit_all, run, setup_ledger
+    code, paper = env
+    run(capsys, "-C", str(code), "init")
+    setup_ledger(code)
+    toml = (code / "ledger/artifacts.toml").read_text()
+    (code / "ledger/artifacts.toml").write_text(toml + '\n[format."mba/f1/mean"]\ndecimals = 2\nvariants = ["up", "down"]\n')
+    commit_all(code, "bounds")
+    assert run(capsys, "-C", str(code), "publish")[0] == 0
+    body = (paper / "generated/results.tex").read_text()
+    assert r"\csname taura@mba/f1/mean\endcsname{0.91}" in body
+    assert r"\csname taura@mba/f1/mean@up\endcsname{0.92}" in body
+    assert r"\csname taura@mba/f1/mean@down\endcsname{0.91}" in body
+    (code / "ledger/artifacts.toml").write_text(toml + '\n[format."mba/f1/mean"]\nvariants = ["sideways"]\n')
+    commit_all(code, "bad variant")
+    rc, r = run(capsys, "-C", str(code), "build")
+    assert rc == 2 and "variants are decimals" in r["error"]
+
+
 def test_repeats_of_cross_validation_are_seeds(tmp_path):
     code = tmp_path / "code"
     (code / "ledger/results").mkdir(parents=True)
