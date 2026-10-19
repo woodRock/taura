@@ -146,6 +146,9 @@ def test_record_as_gpu_spooler_calls_it(env, capsys):
     rc, rec = run(capsys, "-C", str(code), "record", rid, "--event", "fetch", "--outputs", "results")
     assert rec["outputs"] == {"results/out.json": content_hash(code / "results/out.json")}
     assert Path(code / f"ledger/runs/{rid}.toml").is_file()
+    rc, rec = run(capsys, "-C", str(code), "record", "unknown-1", "--event", "start", "--commit", "unknown",
+                  "--host", "cuda06", "--note", "server did not report its checkout")
+    assert rec["commit"] == "unknown" and "dirty" not in rec and rec["note"].startswith("server")
     rc, r = run(capsys, "-C", str(code), "record", "bad id!", "--event", "start")
     assert rc == 2
 

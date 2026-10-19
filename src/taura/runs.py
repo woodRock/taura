@@ -82,7 +82,7 @@ def load_all(code: Path) -> dict[str, dict]:
     return out
 
 
-ORDER = ("id", "status", "started", "finished", "exit_code", "commit", "base_commit", "dirty", "command", "cwd",
+ORDER = ("id", "status", "note", "started", "finished", "exit_code", "commit", "base_commit", "dirty", "command", "cwd",
          "config_path", "config_hash", "seed", "host", "gpus", "spooler_job", "runner", "inputs", "data",
          "outputs")
 
@@ -146,6 +146,8 @@ def git_state(code: Path, commit: str | None = None, dirty_count: int | None = N
 
     gpu-spooler syncs a dirty tree as a `git stash create` commit (two parents, "gpu-spooler sync"):
     that is recorded as dirty, with the commit it was made on top of."""
+    if commit == "unknown":  # the runner couldn't tell: record that, not a guess
+        return {"commit": "unknown"}
     if not gitutil.is_repo(code):
         return {"commit": commit or "unknown", "dirty": bool(dirty_count)}
     if commit is None:
@@ -393,5 +395,6 @@ class Index:
         if rec is None:
             return {"id": rid, "link": how, "missing": True}
         keys = ("status", "started", "finished", "exit_code", "commit", "base_commit", "dirty", "command",
-                "config_path", "config_hash", "seed", "host", "gpus", "spooler_job", "runner", "data", "env")
+                "config_path", "config_hash", "seed", "host", "gpus", "spooler_job", "runner", "data", "env",
+                "note")
         return {"id": rid, "link": how} | {k: rec[k] for k in keys if k in rec}

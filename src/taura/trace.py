@@ -154,6 +154,8 @@ def _run_lines(recs: list[dict] | None, indent: str) -> list[str]:
         out.append(f"{head}  [{rr.get('status', '?')}, exit {rr.get('exit_code', '?')}]  via {rr['link']}")
         out.append(f"{indent}           commit {commit}  on {where}{job}  {rr.get('started', '')}")
         out.append(f"{indent}           $ {rr.get('command', '')}")
+        if rr.get("note"):
+            out.append(f"{indent}           note: {rr['note']}")
         cfg = f"config {rr['config_path']} {_short(rr.get('config_hash'))}" if rr.get("config_path") else ""
         seed = f"seed {rr['seed']}" if rr.get("seed") is not None else ""
         if cfg or seed:

@@ -309,7 +309,7 @@ def cmd_record(args) -> int:
     if new or args.commit:
         rec |= runs.git_state(code, args.commit, args.dirty_count if args.commit else None)
     for field, value in (("host", args.host), ("gpus", args.gpus), ("spooler_job", args.spooler_job),
-                         ("runner", args.runner), ("cwd", args.cwd)):
+                         ("runner", args.runner), ("cwd", args.cwd), ("note", args.note)):
         if value is not None:
             rec[field] = value
     here = socket.gethostname()
@@ -475,6 +475,7 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--exit-code", type=int, help="its exit code (marks it finished)")
     s.add_argument("--outputs", nargs="*", metavar="PATH", help="output files or directories, hashed now")
     s.add_argument("--env-json", metavar="FILE", help="the run's environment, as printed by taura's probe")
+    s.add_argument("--note", help="a remark kept with the record (e.g. how it was reconstructed)")
     s.set_defaults(func=cmd_record)
     s = sub.add_parser("runs", parents=[common], help="list run records, or --diff two of them")
     s.add_argument("--diff", nargs=2, metavar=("RUN_A", "RUN_B"),
