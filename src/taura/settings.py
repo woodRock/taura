@@ -88,8 +88,8 @@ def _literal(node):
 def _defaults(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> dict:
     """Keyword defaults of a function that are literals."""
     args = fn.args.posonlyargs + fn.args.args
-    pairs = list(zip(args[len(args) - len(fn.args.defaults):], fn.args.defaults))
-    pairs += [(a, d) for a, d in zip(fn.args.kwonlyargs, fn.args.kw_defaults) if d is not None]
+    pairs = list(zip(args[len(args) - len(fn.args.defaults):], fn.args.defaults, strict=True))
+    pairs += [(a, d) for a, d in zip(fn.args.kwonlyargs, fn.args.kw_defaults, strict=True) if d is not None]
     return {a.arg: v for a, d in pairs if (v := _literal(d)) is not None}
 
 
@@ -134,7 +134,7 @@ def python_settings(path: Path, names: list[str] | None = None) -> dict:
                 if (v := _literal(value)) is not None:
                     found[t.id] = v
             elif isinstance(t, ast.Tuple) and isinstance(value, ast.Tuple) and len(t.elts) == len(value.elts):
-                for el, val in zip(t.elts, value.elts):
+                for el, val in zip(t.elts, value.elts, strict=True):
                     if isinstance(el, ast.Name) and el.id.isupper() and (v := _literal(val)) is not None:
                         found[el.id] = v
     if names is not None:
