@@ -152,3 +152,18 @@ def test_runs_tab(env, capsys):
         assert "nothing published comes from this run" in text
 
     drive(TauraApp(discover(code)), steps)
+
+
+def test_a_broken_ledger_is_shown_not_hidden(env, capsys):
+    code, paper = published(env, capsys)
+    (code / "ledger/artifacts.toml").write_text((code / "ledger/artifacts.toml").read_text()
+                                               + '\n[format.x]\ndecimals = 1\n[format.x]\ndecimals = 2\n')
+
+    async def steps(app, pilot):
+        assert isinstance(app.screen, PaperScreen)
+        text = detail(app)
+        assert "ledger doesn't load" in text and "twice" in text and "not in the code repo's ledger" not in text
+        from taura.tui_view import plain
+        assert "ledger doesn't load" in plain(app.screen.query_one("#summary", Static).content, width=200)
+
+    drive(TauraApp(discover(code)), steps)

@@ -206,6 +206,9 @@ def runs_view(recs: list[dict] | None, relevant: set[str] | None = None) -> list
 
 
 def result_view(r: dict, relevant: set[str] | None = None) -> list[RenderableType]:
+    if r.get("missing") and r.get("ledger_error"):
+        return [section("Result"), Text("  the code repo's ledger doesn't load:", style="bold red"),
+                Text(f"  {r['ledger_error']}", style="red"), Text("  fix it, then press r to reload", style=MUTED)]
     if r.get("missing"):
         return [section("Result"), Text(f"  {r['name']}: not in the code repo's ledger", style="red")]
     changed = Text("changed since publish — run taura diff", style="bold yellow") if r.get("changed_since_publish") else None

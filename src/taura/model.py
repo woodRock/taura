@@ -91,8 +91,11 @@ class Project:
     def ledger(self) -> Ledger | None:
         try:
             return Ledger(self.code)
-        except TauraError:
+        except TauraError as e:
+            self.ledger_error = str(e)  # shown instead of "not in the ledger" for every claim
             return None
+
+    ledger_error: str | None = None
 
     @cached_property
     def lock(self) -> dict:
@@ -208,6 +211,8 @@ class Project:
         r = self.ledger.results.get(name) if self.ledger else None
         if r is None:
             info["missing"] = True
+            if self.ledger is None:
+                info["ledger_error"] = self.ledger_error
             return info
         info["label"] = r.get("label", name)
         info["hash"] = self.ledger.result_hash(name)

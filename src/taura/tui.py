@@ -153,7 +153,9 @@ class PaperScreen(Screen):
             ((s["last_publish"] or "never")[:19].replace("T", " "), ""),
             (f" from {(s['published_commit'] or '')[:7]}" if s["published_commit"] else "", ""),
             "   ", (f"{s['errors']} error(s)", "bold red" if s["errors"] else "green"), ", ",
-            (f"{s['warnings']} warning(s)", "yellow" if s["warnings"] else "green")))
+            (f"{s['warnings']} warning(s)", "yellow" if s["warnings"] else "green"),
+            *([("\nledger doesn't load: ", "bold red"), (p.ledger_error, "red")] if p.ledger is None and p.ledger_error
+              else [])))
         self.rows = {
             "claims": [((c.location, c.key, tracemod.readable(c.printed) or f"??{c.key}??", styled(c.status)), c)
                        for c in p.claims],
