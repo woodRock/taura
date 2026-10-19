@@ -271,6 +271,9 @@ def check_prose(paper: Path, ledger: Ledger) -> list[Finding]:
         written = [k for k in uses.get(d.file, set()) if base_key(k)[0] == d.key]  # key, or key@N
         if d.verdict != "result" or d.id in present or not written:
             continue
+        result = d.key.split("/")[0]
+        if d.result_hash and result in ledger.results and ledger.result_hash(result) != d.result_hash:
+            continue  # the result changed since the rewrite was verified: a new value is expected
         shown = {k: (published[k], "prints") if k in published else (ledger.render_key(k), "will print")
                  for k in written}
         shown = {k: v for k, v in shown.items() if v[0] is not None}  # dangling-key covers the rest

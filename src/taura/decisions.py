@@ -41,6 +41,9 @@ class Decision:
     reason: str = ""
     by: str = ""
     decided: str = ""
+    # The result's hash when the rewrite was verified (`taura resolve --stamp`). Once the result
+    # changes (a rerun), the paper rightly prints a new value: adopt-mismatch no longer applies.
+    result_hash: str = ""
 
 
 def load(code: Path) -> dict[str, Decision]:

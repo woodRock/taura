@@ -6,7 +6,7 @@ import json
 import sys
 from pathlib import Path
 
-from test_e2e import MAIN_TEX, commit_all, run, setup_ledger
+from test_e2e import MAIN_TEX, commit_all, run, set_result, setup_ledger
 
 PROSE = r"""The ablation scores 0.912 without anchors.
 The full MBA model scores 0.912 with them.
@@ -124,6 +124,18 @@ def test_resolve_by_hand_and_mismatch(env, capsys, tmp_path):
     rc, r = run(capsys, "-C", str(code), "check")
     [m] = [f for f in r["findings"] if f["id"] == "adopt-mismatch"]
     assert "prints 12.2, but the paper said 12.25" in m["message"]
+
+    # a verified rewrite, then a rerun changes the result: the new value is expected, not a mismatch
+    (code / "ledger/artifacts.toml").write_text((code / "ledger/artifacts.toml").read_text()
+                                                .replace("[format.time]\ndecimals = 1", "[format.time]\ndecimals = 2"))
+    commit_all(code, "format fix")
+    assert run(capsys, "-C", str(code), "publish")[0] == 0
+    rc, r = run(capsys, "-C", str(code), "resolve", "--stamp")
+    assert [d["key"] for d in r["decided"]] == ["mba/time"] and r["decided"][0]["result_hash"]
+    set_result(code, "mba", time=13.5)
+    assert run(capsys, "-C", str(code), "publish")[0] == 0
+    rc, r = run(capsys, "-C", str(code), "check")
+    assert not any(f["id"] == "adopt-mismatch" for f in r["findings"])
 
     rc, r = run(capsys, "-C", str(code), "resolve", "--accept-unique")
     assert rc == 0  # nothing strong-unique left; still fine

@@ -16,10 +16,10 @@ from . import NAME, __version__, claims, decisions, envprobe, gitutil, runs
 from . import lock as lockmod
 from . import trace as tracemod
 from .build import build
-from .checks import run_checks
+from .checks import _shown, published_keys, run_checks
 from .discovery import Pair, discover
 from .errors import Refusal, TauraError
-from .ledger import Ledger
+from .ledger import Ledger, base_key
 from .model import Project
 from .papers import all_pairs
 from .publish import diff, publish
@@ -203,7 +203,17 @@ def cmd_resolve(args) -> int:
     stored = decisions.load(pair.code)
     by = args.by or ""
     changed = []
-    if args.accept_unique:
+    if args.stamp:  # verified rewrites: remember each result's hash (see Decision.result_hash)
+        published = published_keys(pair.require_paper())
+        for d in stored.values():
+            if d.verdict != "result" or not d.key:
+                continue
+            result = d.key.split("/")[0]
+            prints = [v for k, v in published.items() if base_key(k)[0] == d.key]
+            if result in led.results and any(_shown(v) == _shown(d.literal) for v in prints):
+                d.result_hash = led.result_hash(result)
+                changed.append(d)
+    elif args.accept_unique:
         for l in lits:
             if l.suggestion and l.strong and l.id not in stored:
                 d = decisions.make(l, "result", l.candidates[0], "the only recorded result with this value", by or NAME)
@@ -448,6 +458,9 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--reason", help="one sentence: what in the text decided it (required)")
     s.add_argument("--by", help="who decided (an agent's name, or yours)")
     s.add_argument("--clear", action="store_true", help="forget the decision for this id")
+    s.add_argument("--stamp", action="store_true",
+                   help="for every decision whose key prints what was typed, record its result's hash, so "
+                        "a later rerun's new values aren't reported as adopt-mismatch")
     s.add_argument("--accept-unique", action="store_true",
                    help="record every undecided number with exactly one strong match as that result")
     s.set_defaults(func=cmd_resolve)
