@@ -92,6 +92,7 @@ def test_seed_claim(repos):
     (Format(sci="power", decimals=0), 0.001, None, r"10^{-3}"),
     (Format(sci="power", decimals=0), 0.0025, None, r"2\times10^{-3}"),
     (Format(decimals=2, round="up"), 0.1301, None, "0.14"),
+    (Format(decimals=2, round="down"), 0.9962, None, "0.99"),
 ])
 def test_formats(fmt, value, stat, want):
     assert fmt.render(value, stat) == want
@@ -207,3 +208,17 @@ def test_precision_variants(env, capsys):
     rc, t = run(capsys, "-C", str(code), "trace", "mba/f1/mean@2")
     item = t["items"][0]
     assert (item["printed"], item["current"]) == ("0.91", "0.91") and item["result"]["key"] == "mba/f1/mean"
+
+
+def test_repeats_of_cross_validation_are_seeds(tmp_path):
+    code = tmp_path / "code"
+    (code / "ledger/results").mkdir(parents=True)
+    (code / "ledger/artifacts.toml").write_text("")
+    (code / "ledger/results/cnn.json").write_text(json.dumps(
+        {"name": "cnn", "metrics": {"ba": {"mean": 0.854, "n": 50, "seeds": 10, "folds": 5}}}))
+    paper = tmp_path / "paper"
+    paper.mkdir()
+    (paper / "m.tex").write_text("Ten-fold? No: 10 repeats of 5-fold CV give \\res{cnn/ba/mean}.\n"
+                                 "\n\nAnd 7 repetitions give \\res{cnn/ba/mean}.\n")
+    claims = seed_claims(paper, Ledger(code))
+    assert [(c.line, c.claimed, c.actual) for c in claims] == [(4, 7, 10)]

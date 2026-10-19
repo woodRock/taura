@@ -137,3 +137,22 @@ def test_prose_checks_and_adopt(env, capsys):
     assert rc == 1 and r["summary"]["unique"] == 1
     [lit] = r["literals"]
     assert (lit["location"], lit["suggestion"]) == ("main.tex:7", r"\res{baselines/f1/mean}")
+
+
+def test_raster_source_figures(env, capsys):
+    """An existing PNG the code repo writes can be adopted as is; a generated figure is still PDF."""
+    code, paper = env
+    run(capsys, "-C", str(code), "init")
+    setup_ledger(code)
+    (code / "figs").mkdir()
+    (code / "figs/saliency.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"pixels")
+    toml = (code / "ledger/artifacts.toml").read_text()
+    (code / "ledger/artifacts.toml").write_text(toml + '\n[artifacts.saliency]\nkind = "figure"\n'
+                                                'output = "generated/saliency.png"\nsource = "figs/saliency.png"\n')
+    commit_all(code, "png figure")
+    assert run(capsys, "-C", str(code), "publish")[0] == 0
+    assert (paper / "generated/saliency.png").read_bytes().endswith(b"pixels")
+    (code / "ledger/artifacts.toml").write_text(toml + '\n[artifacts.bad]\nkind = "figure"\n'
+                                                'output = "generated/bad.pdf"\nsource = "figs/saliency.png"\n')
+    rc, r = run(capsys, "-C", str(code), "build")
+    assert rc == 2 and "same extension" in r["error"]

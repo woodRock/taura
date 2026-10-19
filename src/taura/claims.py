@@ -258,9 +258,11 @@ def _matches(lit: Literal, v: float | int, stat: str | None) -> bool:
 
 
 def _rounds_to(x: float, decimals: int, want: str) -> bool:
-    """x printed at `decimals` gives `want`, rounding to nearest or up ("less than 0.003" for 0.0023)."""
+    """x printed at `decimals` gives `want`, rounding to nearest, up ("less than 0.003" for 0.0023) or
+    down ("r >= 0.99" for 0.996)."""
     up = math.ceil(x * 10 ** decimals - 1e-9) / 10 ** decimals
-    return f"{x:.{decimals}f}" == want or f"{up:.{decimals}f}" == want
+    down = math.floor(x * 10 ** decimals + 1e-9) / 10 ** decimals
+    return want in (f"{x:.{decimals}f}", f"{up:.{decimals}f}", f"{down:.{decimals}f}")
 
 
 def _format_hint(lit: Literal, key: str, rendered: str) -> str | None:
@@ -339,7 +341,9 @@ def seed_claims(paper: Path, ledger: Ledger) -> list[SeedClaim]:
                 if not isinstance(metric, dict):
                     continue
                 # "10 seeds x 5 folds" with n = 50: compare seeds with seeds, folds with folds, runs with n
-                stat = {"seed": "seeds", "fold": "folds"}.get(m.group("what").lower().rstrip("s"), "n")
+                # "10 repeats of 5-fold CV": repeats (repetitions) of cross-validation are seeds
+                what = m.group("what").lower().rstrip("s")
+                stat = {"seed": "seeds", "fold": "folds", "repeat": "seeds", "repetition": "seeds"}.get(what, "n")
                 n = metric.get(stat, metric.get("n"))
                 if isinstance(n, int) and n != claimed:
                     out.append(SeedClaim(rel, i, claimed, m.group("what"), key, n))

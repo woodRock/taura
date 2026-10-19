@@ -20,6 +20,7 @@ RUNS_DIR = f"{LEDGER}/runs"
 ARTIFACTS_FILE = f"{LEDGER}/artifacts.toml"
 
 KINDS = ("macros", "table", "figure")
+FIGURE_SOURCES = (".pdf", ".png", ".jpg", ".jpeg")  # a figure the code repo already writes, copied as is
 # Characters allowed in result names, metric names and stats. They end up inside
 # \csname...\endcsname and \res{...}, so nothing with TeX meaning ({}%#\$&^~).
 KEY_PART = re.compile(r"^[A-Za-z0-9_.\-]+$")
@@ -43,14 +44,16 @@ class Format:
     sign: bool = False  # explicit + on positive numbers
     sci: bool | str = False  # True: 0.00195 -> 2\\times10^{-3} (math mode; decimals apply to the
     #                          mantissa). "power": like True, but a mantissa of 1 prints as 10^{-3}
-    round: str = "nearest"  # or "up": for bounds such as p <= ..., so rounding never makes them false
+    round: str = "nearest"  # "up" for upper bounds (p <= ...), "down" for lower bounds (r >= ...)
     variants: list = field(default_factory=list)  # also publish key@N with N decimals (a rounded restatement)
 
     def _round(self, x: float, decimals: int) -> float:
         if self.round == "up":
             return math.ceil(x * 10 ** decimals - 1e-9) / 10 ** decimals
+        if self.round == "down":  # for lower bounds such as r >= 0.99
+            return math.floor(x * 10 ** decimals + 1e-9) / 10 ** decimals
         if self.round != "nearest":
-            raise TauraError(f'format round must be "nearest" or "up", got {self.round!r}')
+            raise TauraError(f'format round must be "nearest", "up" or "down", got {self.round!r}')
         return float(f"{x:.{decimals}f}")
 
     def render(self, value, stat: str | None = None) -> str:
@@ -137,8 +140,10 @@ class Ledger:
                 if bool(script) == bool(source):
                     raise TauraError(f"{where}: a figure needs either `script` (taura runs it) or `source` "
                                      "(a PDF the code repo already writes)")
-                if not output.endswith(".pdf") or (source and not source.endswith(".pdf")):
-                    raise TauraError(f"{where}: figures are PDF only")
+                kind_ok = (".pdf",) if script else FIGURE_SOURCES  # generated: PDF; adopted from figs/: also raster
+                if not output.endswith(kind_ok) or (source and Path(source).suffix != Path(output).suffix):
+                    raise TauraError(f"{where}: figure output must be {' or '.join(kind_ok)}, with the same "
+                                     "extension as its source")
                 if made_by and not source:
                     raise TauraError(f"{where}: `made_by` goes with `source`")
                 if made_by and not (self.code / made_by).is_file():
