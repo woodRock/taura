@@ -288,6 +288,7 @@ def cmd_run(args) -> int:
     if python:
         rec["env"] = envprobe.probe(python, cwd)
     where = runs.save(code, rec)
+    runs.pin(code, rec)
     if rec["dirty"]:
         print(f"{NAME}: note: the code repo has uncommitted changes; run {run_id} is recorded as dirty",
               file=sys.stderr)
@@ -346,6 +347,7 @@ def cmd_record(args) -> int:
         except (OSError, json.JSONDecodeError) as e:
             raise TauraError(f"--env-json {args.env_json}: {e}") from None
     where = runs.save(code, rec)
+    runs.pin(code, rec)
     _emit(args, rec, f"{'recorded' if new else 'updated'} run {args.id} → {where.relative_to(code)}")
     return 0
 
@@ -383,6 +385,12 @@ def cmd_runs(args) -> int:
             raise TauraError(f"no run record for {', '.join(missing)}; see `taura runs`")
         d = runs.diff(recs[a], recs[b])
         _emit(args, {"a": a, "b": b, "diff": d}, "\n".join(_diff_lines(d, a, b)))
+        return 0
+    if args.pin:
+        pinned, dropped = runs.pin_all(code)
+        _emit(args, {"pinned": pinned, "dropped": dropped},
+              f"pinned {len(pinned)} run commit(s) under {runs.PIN_REFS}/"
+              + (f"; dropped {len(dropped)} ref(s) of removed records" if dropped else ""))
         return 0
     lines = [f"{r.get('id'):<34} {r.get('status', '?'):<8} {(r.get('commit') or '?')[:7]}"
              f"{'+dirty' if r.get('dirty') else '      '} {(r.get('host') or '?'):<14} {r.get('command', '')[:70]}"
@@ -503,6 +511,9 @@ def parser() -> argparse.ArgumentParser:
     s = sub.add_parser("runs", parents=[common], help="list run records, or --diff two of them")
     s.add_argument("--diff", nargs=2, metavar=("RUN_A", "RUN_B"),
                    help="what differs: commit, command, config, seed, host, data, environment, outputs")
+    s.add_argument("--pin", action="store_true",
+                   help=f"keep every recorded run's commit from `git gc` ({runs.PIN_REFS}/<id>); drop refs of "
+                        "removed records")
     s.set_defaults(func=cmd_runs)
     s = sub.add_parser("tui", parents=[common],
                        help="browse papers, claims and their provenance (read-only; needs taura[tui])")

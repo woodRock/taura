@@ -41,6 +41,7 @@ taura status
 taura adopt                 # typed numbers in the paper and the \res keys they match (report only)
 taura run -- python3 train.py --config c.yaml --seed 3   # run and record an experiment
 taura runs                  # the run records
+taura runs --pin            # keep every recorded run's commit from git gc
 taura trace TARGET          # walk a claim back: a \res key, main.tex:142, or an artifact
 taura papers                # every paired code and paper repo under the roots
 taura tui                   # browse papers, claims and their provenance (read-only)
@@ -66,6 +67,16 @@ Every experiment run gets a record in `ledger/runs/<id>.toml`:
   the files it brought back. A `task sync` of a dirty tree is recorded as dirty,
   with the commit it was made on.
 - **Anything else:** `taura record ID --event start|finish|fetch ...`.
+
+Each record also pins its commit with a ref, `refs/taura/runs/<id>`, so `git gc`
+can't prune it. That matters for gpu-spooler's snapshot of a dirty tree: a
+`git stash create` commit that no branch contains, which git would otherwise
+delete after two weeks and leave the record pointing at nothing. Commits that
+are unknown or not in the local repo are recorded without a ref. The refs stay
+local: `git push`, `--all` and `--tags` send only branches and tags (`--mirror`
+would send them). `taura runs --pin` pins records made before taura did this,
+and drops the refs of records you have deleted; `taura check` reports
+`unpinned-run` until you do.
 
 Datasets are declared in `taura.toml`, each with a human label and a content
 hash. taura caches file hashes by size and mtime in `.taura/`, so only changed
@@ -272,6 +283,7 @@ said, e.g. `12.2` where the text had `12.25`.
 | `adopt-mismatch` | warn | a number rewritten as `\res{key}` now prints differently from what the paper said |
 | `missing-run` | error | a result names a run with no record |
 | `missing-commit` | error | a run's commit is not in the code repo |
+| `unpinned-run` | warn | a run's commit is in the code repo but has no `refs/taura/runs/<id>` ref, so `git gc` may prune it (fix: `taura runs --pin`) |
 | `dirty-run` | warn | a published result or figure comes from a run with uncommitted changes |
 | `failed-run` | warn | ... from a run that exited non-zero |
 | `code-changed-since-run` | warn | ... from a run whose scripts, config or `[runs] watch` paths changed since its commit |
