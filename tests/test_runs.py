@@ -161,6 +161,67 @@ def test_record_as_gpu_spooler_calls_it(env, capsys):
     assert rc == 2
 
 
+def gc_now(code: Path) -> None:
+    git(code, "reflog", "expire", "--expire=now", "--all")
+    git(code, "gc", "--quiet", "--prune=now")
+
+
+def test_recorded_snapshot_survives_gc(env, capsys):
+    """gpu-spooler's snapshot of a dirty tree is referenced by nothing here: the record pins it."""
+    code, paper = prepare(env, capsys)
+    (code / "train.py").write_text(TRAIN + "\n# not committed\n")
+    snap = git(code, "stash", "create", "gpu-spooler sync").strip()
+    (code / "train.py").write_text(TRAIN + "\n# never recorded\n")
+    stray = git(code, "stash", "create", "gpu-spooler sync").strip()
+    git(code, "checkout", "--", "train.py")
+    rid = "2026-10-19-spooler-13"
+    for _ in range(2):  # re-recording is harmless
+        rc, _rec = run(capsys, "-C", str(code), "record", rid, "--event", "start", "--commit", snap,
+                       "--runner", "gpu-spooler")
+        assert rc == 0
+    assert git(code, "rev-parse", f"{runsmod.PIN_REFS}/{rid}").strip() == snap
+    gc_now(code)
+    assert runsmod.commit_exists(code, snap) and not runsmod.commit_exists(code, stray)
+    rc, r = run(capsys, "-C", str(code), "check")
+    assert not {f["id"] for f in r["findings"]} & {"missing-commit", "unpinned-run"}
+    # an unknown commit, or one not in this repo, is recorded without a ref and without failing
+    rc, _rec = run(capsys, "-C", str(code), "record", "elsewhere-1", "--event", "start", "--commit", "f" * 40)
+    assert rc == 0 and "elsewhere-1" not in runsmod.pins(code)
+    # a plain push (or --all, --tags) sends branches and tags, not refs/taura/
+    remote = code.parent / "remote.git"
+    git(code.parent, "init", "-q", "--bare", str(remote))
+    git(code, "remote", "add", "pushtest", str(remote))
+    branch = git(code, "branch", "--show-current").strip()
+    git(code, "push", "-q", "-u", "pushtest", branch)
+    git(code, "push", "-q", "pushtest")
+    git(code, "push", "-q", "--all", "pushtest")
+    git(code, "push", "-q", "--tags", "pushtest")
+    assert "refs/taura" not in git(remote, "for-each-ref") and branch in git(remote, "for-each-ref")
+
+
+def test_existing_records_can_be_pinned(env, capsys):
+    code, paper = prepare(env, capsys)
+    (code / "train.py").write_text(TRAIN + "\n# not committed\n")
+    snap = git(code, "stash", "create", "gpu-spooler sync").strip()
+    git(code, "checkout", "--", "train.py")
+    runsmod.save(code, {"id": "old-1", "status": "done", "commit": snap, "dirty": True})  # before taura pinned
+    runsmod.save(code, {"id": "gone-1", "status": "done", "commit": snap})
+    runsmod.pin(code, {"id": "gone-1", "commit": snap})
+    (code / "ledger/runs/gone-1.toml").unlink()  # its record was removed
+    rc, r = run(capsys, "-C", str(code), "check")
+    found = [f for f in r["findings"] if f["id"] == "unpinned-run"]
+    assert [f["location"] for f in found] == ["ledger/runs/old-1.toml"] and "taura runs --pin" in found[0]["fix"]
+    rc, r = run(capsys, "-C", str(code), "runs", "--pin")
+    assert rc == 0 and r == {"pinned": ["old-1"], "dropped": ["gone-1"]}
+    assert runsmod.pins(code) == {"old-1": snap}
+    rc, r = run(capsys, "-C", str(code), "runs", "--pin")
+    assert r == {"pinned": [], "dropped": []}
+    gc_now(code)
+    rc, r = run(capsys, "-C", str(code), "check")
+    assert runsmod.commit_exists(code, snap)
+    assert not {f["id"] for f in r["findings"]} & {"missing-commit", "unpinned-run"}
+
+
 def test_dirty_ignores_taura_files_and_earlier_outputs(env, capsys):
     """A pipeline: step 1 rewrites a tracked report; step 2 must not be recorded as dirty for it."""
     code, _ = prepare(env, capsys)

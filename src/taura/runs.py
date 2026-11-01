@@ -221,6 +221,50 @@ def commit_exists(code: Path, commit: str) -> bool:
     return gitutil.git(code, "cat-file", "-e", f"{commit}^{{commit}}", check=False).returncode == 0
 
 
+PIN_REFS = "refs/taura/runs"
+
+
+def pin(code: Path, rec: dict) -> bool:
+    """Keep a run's commit reachable with refs/taura/runs/<id>, so `git gc` can't prune it.
+
+    gpu-spooler's snapshot of a dirty tree (`git stash create`) is referenced by nothing else here.
+    Skips an unknown commit or one not in this repo; never raises: recording a run must not fail
+    over this. Refs outside refs/heads and refs/tags aren't pushed by a plain `git push`."""
+    commit = rec.get("commit")
+    try:
+        if not commit or commit == "unknown" or not gitutil.is_repo(code) or not commit_exists(code, commit):
+            return False
+        return gitutil.git(code, "update-ref", f"{PIN_REFS}/{rec['id']}", commit, check=False).returncode == 0
+    except OSError:
+        return False
+
+
+def pins(code: Path) -> dict[str, str]:
+    """run id -> the commit its ref points at."""
+    r = gitutil.git(code, "for-each-ref", "--format=%(refname) %(objectname)", PIN_REFS, check=False)
+    lines = (line.split() for line in r.stdout.splitlines() if line.strip()) if r.returncode == 0 else ()
+    return {ref.removeprefix(PIN_REFS + "/"): sha for ref, sha in lines}
+
+
+def unpinned(code: Path, records: dict[str, dict]) -> list[str]:
+    """Runs whose commit is here but not pinned (recorded before taura pinned, or the ref was lost)."""
+    if not gitutil.is_repo(code):
+        return []
+    have = pins(code)
+    return [rid for rid, rec in records.items()
+            if rec.get("commit") not in (None, "unknown") and not have.get(rid, "").startswith(rec["commit"])
+            and commit_exists(code, rec["commit"])]
+
+
+def pin_all(code: Path) -> tuple[list[str], list[str]]:
+    """Pin every recorded run's commit; drop refs of runs whose record is gone. (pinned, dropped)."""
+    records = load_all(code)
+    pinned = [rid for rid in unpinned(code, records) if pin(code, records[rid])]
+    dropped = [rid for rid in pins(code) if rid not in records
+               and gitutil.git(code, "update-ref", "-d", f"{PIN_REFS}/{rid}", check=False).returncode == 0]
+    return pinned, dropped
+
+
 def changed_since(code: Path, commit: str, paths: list[str]) -> list[str]:
     """Which of paths differ between commit and the working tree now."""
     if not paths or not commit_exists(code, commit):

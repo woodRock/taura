@@ -383,6 +383,11 @@ def check_runs(ledger: Ledger, lock: dict) -> list[Finding]:
                                f"run {rid}'s commit {commit[:12]} is not in the code repo",
                                "fetch or restore that commit (was it rebased away?); a snapshot from gpu-spooler "
                                "sync lives under refs/gpu-spooler/ on the server"))
+    for rid in runsmod.unpinned(code, idx.records):
+        out.append(Finding("unpinned-run", "warn", "code", f"ledger/runs/{rid}.toml",
+                           f"run {rid}'s commit {idx.records[rid]['commit'][:12]} has no {runsmod.PIN_REFS}/ ref, "
+                           "so `git gc` may prune it if no branch contains it",
+                           "`taura runs --pin`"))
     # what the paper depends on: published results and published figures, with the content they hold
     published: list[tuple[str, list[str] | None, object]] = []
     for name in lock["results"]:
