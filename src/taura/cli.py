@@ -71,12 +71,15 @@ def cmd_diff(args) -> int:
 
 
 def cmd_publish(args) -> int:
-    r = publish(_pair(args), allow_dirty_code=args.allow_dirty_code, fetch=not args.no_fetch, dry_run=args.dry_run)
+    r = publish(_pair(args), allow_dirty_code=args.allow_dirty_code, fetch=not args.no_fetch,
+                dry_run=args.dry_run, no_commit=args.no_commit)
     lines = [c["text"] for c in r["changes"]]
     if not lines:
         text = "nothing to publish"
     elif r["dry_run"]:
         text = "would publish:\n" + "\n".join(lines)
+    elif r["no_commit"]:
+        text = "\n".join(lines) + "\nsynced into the paper repo, uncommitted (not recorded as published)"
     else:
         text = "\n".join(lines) + f"\ncommitted {r['commit'][:7]} in the paper repo (not pushed)"
     _emit(args, r, text)
@@ -439,6 +442,11 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--allow-dirty-code", action="store_true", help="publish from a code tree with uncommitted changes")
     s.add_argument("--no-fetch", action="store_true", help="don't `git fetch` the paper repo to check it's up to date")
     s.add_argument("--dry-run", action="store_true", help="run the preflight checks and show changes; write nothing")
+    s.add_argument("--no-commit", action="store_true",
+                   help="copy built artifacts into the paper repo so it compiles, and rewrite taura.lock to "
+                        "match, but leave both uncommitted (for mid-revision work where the paper repo is "
+                        "deliberately dirty); not recorded as published, so a later plain `taura publish` "
+                        "(once the paper repo is clean) still commits it for real")
     s.set_defaults(func=cmd_publish)
     s = sub.add_parser("check", parents=[common], help="check the provenance chain (exit 1 on any finding)")
     s.set_defaults(func=cmd_check)

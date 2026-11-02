@@ -139,14 +139,14 @@ def diff(pair: Pair) -> list[Change]:
 # ---- publish ---------------------------------------------------------------------
 
 
-def preflight(pair: Pair, allow_dirty_code: bool, fetch: bool) -> list[str]:
+def preflight(pair: Pair, allow_dirty_code: bool, fetch: bool, require_clean_paper: bool = True) -> list[str]:
     """Reasons publishing must not go ahead (empty = OK)."""
     paper = pair.require_paper()
     problems = []
     if not gitutil.is_repo(paper):
         return [f"paper {paper} is not a git repo"]
     dirty = gitutil.status_lines(paper)
-    if dirty:
+    if dirty and require_clean_paper:
         problems.append("paper repo has uncommitted changes:\n  " + "\n  ".join(dirty[:10]))
     if fetch and gitutil.upstream(paper):
         r = gitutil.fetch(paper)
@@ -166,14 +166,23 @@ def preflight(pair: Pair, allow_dirty_code: bool, fetch: bool) -> list[str]:
     return problems
 
 
-def publish(pair: Pair, allow_dirty_code: bool = False, fetch: bool = True, dry_run: bool = False) -> dict:
+def publish(pair: Pair, allow_dirty_code: bool = False, fetch: bool = True, dry_run: bool = False,
+            no_commit: bool = False) -> dict:
+    """no_commit: copy the built artifacts into the paper's generated/ so it compiles, and
+    rewrite taura.lock to match (so a later publish doesn't mistake them for a hand edit), but
+    touch neither left uncommitted. For mid-revision work where the paper repo is deliberately
+    left dirty (e.g. for an Overleaf/latexdiff review), so a normal publish's "paper repo has
+    uncommitted changes" refusal would otherwise block every rerun. `lock["published"]` is not
+    bumped, so `taura status` still shows this as unpublished; a later plain `taura publish`
+    (once the paper repo is clean again) commits the now-matching lock for real."""
     paper = pair.require_paper()
-    problems = preflight(pair, allow_dirty_code, fetch)
+    problems = preflight(pair, allow_dirty_code, fetch, require_clean_paper=not no_commit)
     if problems:
         raise Refusal("refusing to publish:\n- " + "\n- ".join(problems))
     p = plan(pair)
     sha, _ = code_commit(pair.code)
-    result = {"changes": [asdict(c) | {"text": str(c)} for c in p.changes], "commit": None, "dry_run": dry_run}
+    result = {"changes": [asdict(c) | {"text": str(c)} for c in p.changes], "commit": None,
+              "dry_run": dry_run, "no_commit": no_commit}
     if not p.changes or dry_run:
         return result
 
@@ -184,13 +193,21 @@ def publish(pair: Pair, allow_dirty_code: bool = False, fetch: bool = True, dry_
     for rel in p.to_delete:
         (paper / rel).unlink(missing_ok=True)
 
+    # Even in no_commit mode, taura.lock is rewritten (just not git-added or committed):
+    # its artifact hashes must match what's now on disk, or a later real publish would
+    # mistake these synced files for an out-of-band hand edit (check_hand_edits compares
+    # file content against the lock, not against git history).
     lock = lockmod.read(paper)
     lock["code_repo"] = contract(pair.code)
     lock["code_commit"] = sha
-    lock["published"] = datetime.now().astimezone().isoformat(timespec="seconds")
     lock["artifacts"] = {b.artifact.name: b.lock_entry() for b in p.built}
     lock["results"] = {r: h for b in p.built for r, h in b.inputs.items()}
+    if not no_commit:
+        lock["published"] = datetime.now().astimezone().isoformat(timespec="seconds")
     lockmod.write(paper, lock)
+
+    if no_commit:
+        return result
 
     paths = [LOCK_FILE] + [b.artifact.output for b in p.to_copy]
     gitutil.git(paper, "add", "--", *paths)
