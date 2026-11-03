@@ -14,6 +14,7 @@ def env(tmp_path, monkeypatch):
     code, paper = code_root / NAME, paper_root / NAME
     for k, v in {
         "TAURA_CODE_ROOT": str(code_root), "TAURA_PAPER_ROOT": str(paper_root), "TAURA_PYTHON": sys.executable,
+        "TAURA_CONFIG": str(tmp_path / "config.toml"),
         "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
         "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com",
         "GIT_CONFIG_GLOBAL": "/dev/null",

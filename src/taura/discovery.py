@@ -1,7 +1,7 @@
 """Find the (code repo, paper repo) pair from either side.
 
-Convention: ~/Desktop/<name> pairs with ~/overleaf/<name>. Roots are
-overridable with TAURA_CODE_ROOT / TAURA_PAPER_ROOT. A taura.toml in the
+Convention: ~/Desktop/<name> pairs with ~/overleaf/<name>. The roots are set with
+`taura config` (overridable for one run with TAURA_CODE_ROOT / TAURA_PAPER_ROOT). A taura.toml in the
 code repo overrides the paper path; a taura.lock in the paper repo records
 which code repo it was published from, so the reverse lookup survives a
 renamed Overleaf project.
@@ -13,7 +13,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import NAME, tomlio
+from . import NAME, tomlio, userconfig
 from .errors import TauraError
 
 CONFIG_FILE = f"{NAME}.toml"
@@ -23,11 +23,11 @@ ENV_PAPER_ROOT = f"{NAME.upper()}_PAPER_ROOT"
 
 
 def code_root() -> Path:
-    return Path(os.environ.get(ENV_CODE_ROOT, "~/Desktop")).expanduser().resolve()
+    return userconfig.root("code_root")[0]
 
 
 def paper_root() -> Path:
-    return Path(os.environ.get(ENV_PAPER_ROOT, "~/overleaf")).expanduser().resolve()
+    return userconfig.root("paper_root")[0]
 
 
 def contract(path: Path) -> str:
@@ -134,5 +134,6 @@ def discover(cwd: Path | None = None, paper: str | None = None) -> Pair:
 
     raise TauraError(
         f"{cwd} is not inside a code repo under {croot} or a paper repo under {proot} "
-        f"(override the roots with {ENV_CODE_ROOT} / {ENV_PAPER_ROOT})"
+        f"(set the roots with `{NAME} config code-root DIR` / `{NAME} config paper-root DIR`, "
+        f"or {ENV_CODE_ROOT} / {ENV_PAPER_ROOT} for one run)"
     )
