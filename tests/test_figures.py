@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 import time
 from pathlib import Path
 
+import pytest
 from test_e2e import ARTIFACTS, FIG_SCRIPT, MAIN_TEX, commit_all, git, run, setup_ledger
 
 from taura.hashing import content_hash, sha256_file
@@ -187,3 +189,23 @@ def test_concurrent_builds_both_succeed(env, capsys, tmp_path):
     for p, (_, err) in zip(procs, outs, strict=True):
         assert p.returncode == 1 and not err, err  # 1: unpublished changes, not a crash
     assert outs[0] == outs[1]  # each saw the same complete build
+
+
+def test_publish_holds_build_lock_while_copying(env, capsys, monkeypatch):
+    """A build started mid-publish must not rewrite staged files while they're copied into the paper."""
+    fcntl = pytest.importorskip("fcntl")
+    code, _ = env
+    run(capsys, "-C", str(code), "init")
+    setup_ledger(code)
+    copied, copyfile = [], shutil.copyfile
+
+    def copy_and_probe(src, dst):
+        with open(code / ".taura/build.lock", "a") as f:  # what a second taura would do
+            with pytest.raises(BlockingIOError):
+                fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        copied.append(dst)
+        return copyfile(src, dst)
+
+    monkeypatch.setattr("taura.publish.shutil.copyfile", copy_and_probe)
+    assert run(capsys, "-C", str(code), "publish")[0] == 0
+    assert copied

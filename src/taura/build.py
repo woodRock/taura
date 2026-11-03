@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -184,20 +185,33 @@ def build_one(ledger: Ledger, art: Artifact, staging: Path, commit_label: str) -
     return Built(art, out, digest, inputs, ledger.script_hash(art), ledger.config_hash(art), bold, bold_by)
 
 
+_held = threading.local()  # lock paths this thread holds: flock on a second open() of the same file would deadlock
+
+
 @contextmanager
-def _exclusive(path: Path):
-    """Hold an exclusive lock on `path`; a second taura (tuhi's report and a terminal, say) waits its turn."""
+def staging_lock(code: Path):
+    """Hold the code repo's build lock; a second taura (tuhi's report and a terminal, say) waits its turn.
+    Reentrant, so publish can hold it from build through copying out of staging."""
+    path = code / BUILD_LOCK
+    held = _held.__dict__.setdefault("paths", set())
+    if path in held:
+        yield
+        return
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "a") as f:
         if fcntl:
             fcntl.flock(f, fcntl.LOCK_EX)
-        yield  # closing the file releases the lock
+        held.add(path)
+        try:
+            yield
+        finally:
+            held.discard(path)  # closing the file releases the lock
 
 
 def build(ledger: Ledger, names: list[str] | None = None) -> list[Built]:
     staging = ledger.code / STAGING
     _, label = code_commit(ledger.code)
-    with _exclusive(ledger.code / BUILD_LOCK):  # every build shares one staging folder
+    with staging_lock(ledger.code):  # every build shares one staging folder
         built = [build_one(ledger, a, staging, label) for a in ledger.select(names)]
         if not names:  # a full build drops staged files of removed artifacts
             keep = {b.path for b in built}
