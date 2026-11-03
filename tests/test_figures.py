@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 import time
 from pathlib import Path
 
-from test_e2e import ARTIFACTS, MAIN_TEX, commit_all, git, run, setup_ledger
+from test_e2e import ARTIFACTS, FIG_SCRIPT, MAIN_TEX, commit_all, git, run, setup_ledger
 
 from taura.hashing import content_hash, sha256_file
 
@@ -166,3 +168,22 @@ def test_raster_source_figures(env, capsys):
                                                 'output = "generated/bad.pdf"\nsource = "figs/saliency.png"\n')
     rc, r = run(capsys, "-C", str(code), "build")
     assert rc == 2 and "same extension" in r["error"]
+
+
+def test_concurrent_builds_both_succeed(env, capsys, tmp_path):
+    """Two `taura diff`s at once (say tuhi's report and one in a terminal) share .taura/build/: they take turns."""
+    code, _ = env
+    run(capsys, "-C", str(code), "init")
+    setup_ledger(code)
+    # the figure script holds a marker for a moment: a second build overlapping it fails to create one
+    busy = tmp_path / "busy"
+    (code / "artifacts/fig_alignment.py").write_text(
+        f"import os, time\nos.close(os.open({str(busy)!r}, os.O_CREAT | os.O_EXCL))\n"
+        f"time.sleep(0.3)\nos.remove({str(busy)!r})\n" + FIG_SCRIPT)
+    commit_all(code, "slow figure")
+    cmd = [sys.executable, "-m", "taura", "--json", "diff", "-C", str(code)]
+    procs = [subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) for _ in range(2)]
+    outs = [p.communicate() for p in procs]
+    for p, (_, err) in zip(procs, outs, strict=True):
+        assert p.returncode == 1 and not err, err  # 1: unpublished changes, not a crash
+    assert outs[0] == outs[1]  # each saw the same complete build

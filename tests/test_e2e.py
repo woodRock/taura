@@ -297,6 +297,52 @@ def test_publish_refuses_dirty_code_and_dirty_paper(env, capsys):
     assert rc == 1 and "--allow-dirty-code" in r["error"]
     assert run(capsys, "-C", str(code), "publish", "--allow-dirty-code")[0] == 0
     assert "-dirty" in (paper / "generated/results.tex").read_text().splitlines()[2]
+
+
+def test_publish_no_commit_syncs_dirty_paper_without_committing(env, capsys):
+    """--no-commit: for mid-revision work, where the paper repo is deliberately left dirty
+    (e.g. for an Overleaf/latexdiff review) so a plain publish's dirty-paper refusal would
+    otherwise block every rerun."""
+    code, paper = env
+    run(capsys, "-C", str(code), "init")
+    setup_ledger(code)
+    assert run(capsys, "-C", str(code), "publish")[0] == 0
+    head = git(paper, "rev-parse", "HEAD")
+    published_line = [l for l in (paper / "taura.lock").read_text().splitlines()
+                       if l.startswith("published")][0]
+    last_publish_before = run(capsys, "-C", str(code), "status")[1]["last_publish"]
+
+    (paper / "intro.tex").write_text("Mid-revision edit, not yet committed.\n")
+    set_result(code, "mba", f1=0.917)
+
+    rc, r = run(capsys, "-C", str(code), "publish")
+    assert rc == 1 and "paper repo has uncommitted changes" in r["error"]
+
+    rc, r = run(capsys, "-C", str(code), "publish", "--no-commit")
+    assert rc == 0 and r["commit"] is None and r["no_commit"] is True
+    assert "0.912 → 0.917" in "\n".join(c["text"] for c in r["changes"])
+    # synced to disk ...
+    assert "0.917" in (paper / "generated/results.tex").read_text()
+    lock_after = (paper / "taura.lock").read_text()
+    assert published_line in lock_after.splitlines()  # not (re-)stamped as published
+    # ... and neither the copied files nor the lock are committed
+    assert git(paper, "rev-parse", "HEAD") == head
+    porcelain = git(paper, "status", "--porcelain")
+    assert "intro.tex" in porcelain and "generated/results.tex" in porcelain and "taura.lock" in porcelain
+
+    # taura check sees it as current (no hand-edit false positive)
+    rc, r = run(capsys, "-C", str(code), "check")
+    assert rc == 0, r["findings"]
+    # ... but `status` still shows the old publish time: this sync isn't recorded as published
+    rc, r = run(capsys, "-C", str(code), "status")
+    assert r["last_publish"] == last_publish_before
+
+    # once the paper repo is clean (committing the synced lock along with the rest), a plain
+    # publish finds nothing left to do: the no_commit sync already made everything consistent
+    commit_all(paper, "mid-revision edit")
+    rc, r = run(capsys, "-C", str(code), "publish")
+    assert rc == 0 and r["commit"] is None and not r["changes"]
+    assert git(paper, "status", "--porcelain") == ""
     (paper / "main.tex").write_text("changed")
     rc, r = run(capsys, "-C", str(code), "publish", "--allow-dirty-code")
     assert rc == 1 and "uncommitted" in r["error"]
