@@ -38,7 +38,10 @@ Python ≥ 3.10, no runtime dependencies (`tomli` on 3.10 only).
 `~/Desktop/<name>` (code) pairs with `~/overleaf/<name>` (paper, a git clone of
 the Overleaf project). Every command works from either side. Overrides:
 
-- `TAURA_CODE_ROOT`, `TAURA_PAPER_ROOT`: the two roots.
+- `taura config paper-root DIR` and `taura config code-root DIR`: move the two roots, saved in
+  `~/.config/taura/config.toml` (`$TAURA_CONFIG` to use another file) for every run.
+  `taura config` shows them; `--reset` goes back to the default.
+- `TAURA_CODE_ROOT`, `TAURA_PAPER_ROOT`: the two roots for one run; they win over the config.
 - `taura.toml` in the code repo: `paper = "~/overleaf/other-name"`, or
   `[papers.<name>] path = ...` for several papers (pick one with `--paper`).
 
@@ -58,6 +61,7 @@ taura runs                  # the run records
 taura runs --pin            # keep every recorded run's commit from git gc
 taura trace TARGET          # walk a claim back: a \res key, main.tex:142, or an artifact
 taura papers                # every paired code and paper repo under the roots
+taura config                # where paper and code repos live (taura config paper-root DIR)
 taura tui                   # browse papers, claims and their provenance (read-only)
 ```
 

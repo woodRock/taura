@@ -12,7 +12,7 @@ import sys
 from dataclasses import asdict
 from pathlib import Path
 
-from . import NAME, __version__, claims, decisions, envprobe, gitutil, runs
+from . import NAME, __version__, claims, decisions, envprobe, gitutil, runs, userconfig
 from . import lock as lockmod
 from . import trace as tracemod
 from .build import build
@@ -264,6 +264,25 @@ def cmd_papers(args) -> int:
                      f"published {pub:<16}  {state}")
     _emit(args, {"papers": rows}, "\n".join(lines) or "no paired repos found under the roots")
     return 1 if any(r["errors"] for r in rows) else 0
+
+
+def cmd_config(args) -> int:
+    if args.setting:
+        key = userconfig.SETTINGS[args.setting]
+        if args.reset == bool(args.value):
+            raise TauraError(f"give a folder, or --reset: {NAME} config {args.setting} DIR")
+        path = userconfig.set_value(key, None if args.reset else args.value)
+        if not args.json:
+            print(f"saved in {path}", file=sys.stderr)
+    data = {"config": str(userconfig.config_path())}
+    lines = []
+    for name, key in userconfig.SETTINGS.items():
+        folder, source = userconfig.root(key)
+        data[key] = {"path": str(folder), "from": source}
+        note = {"env": f" (from ${userconfig.ENV[key]}, which wins over the config)", "default": " (default)"}.get(source, "")
+        lines.append(f"{name:<11} {userconfig._contract(folder)}{note}")
+    _emit(args, data, "\n".join(lines))
+    return 0
 
 
 def _code(args) -> Path:
@@ -523,6 +542,12 @@ def parser() -> argparse.ArgumentParser:
                    help=f"keep every recorded run's commit from `git gc` ({runs.PIN_REFS}/<id>); drop refs of "
                         "removed records")
     s.set_defaults(func=cmd_runs)
+    s = sub.add_parser("config", parents=[common],
+                       help="where paper and code repos live: show them, or set one (saved for every run)")
+    s.add_argument("setting", nargs="?", choices=sorted(userconfig.SETTINGS), help="the setting to change")
+    s.add_argument("value", nargs="?", metavar="DIR", help="the folder")
+    s.add_argument("--reset", action="store_true", help="go back to the default (~/overleaf, ~/Desktop)")
+    s.set_defaults(func=cmd_config)
     s = sub.add_parser("tui", parents=[common],
                        help="browse papers, claims and their provenance (read-only; needs taura[tui])")
     s.add_argument("--all", action="store_true", help="start from the list of papers even inside a repo")
