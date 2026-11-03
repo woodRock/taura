@@ -9,7 +9,7 @@ from pathlib import Path
 
 from . import NAME, gitutil
 from . import lock as lockmod
-from .build import Built, build, code_commit
+from .build import Built, build, code_commit, staging_lock
 from .checks import check_hand_edits
 from .discovery import LOCK_FILE, Pair, contract
 from .errors import Refusal
@@ -179,6 +179,11 @@ def publish(pair: Pair, allow_dirty_code: bool = False, fetch: bool = True, dry_
     problems = preflight(pair, allow_dirty_code, fetch, require_clean_paper=not no_commit)
     if problems:
         raise Refusal("refusing to publish:\n- " + "\n- ".join(problems))
+    with staging_lock(pair.code):  # so another build can't rewrite staged files while they're copied out
+        return _publish(pair, paper, dry_run, no_commit)
+
+
+def _publish(pair: Pair, paper: Path, dry_run: bool, no_commit: bool) -> dict:
     p = plan(pair)
     sha, _ = code_commit(pair.code)
     result = {"changes": [asdict(c) | {"text": str(c)} for c in p.changes], "commit": None,
