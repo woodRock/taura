@@ -11,8 +11,14 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
+
+try:
+    import fcntl
+except ImportError:  # Windows: no advisory locks, builds aren't serialised
+    fcntl = None
 
 from . import NAME, gitutil
 from .discovery import contract
@@ -22,6 +28,7 @@ from .hashing import content_hash, sha256_text
 from .ledger import Artifact, Ledger, flatten, variant_ok
 
 STAGING = Path(gitutil.STAGING_DIR) / "build"
+BUILD_LOCK = Path(gitutil.STAGING_DIR) / "build.lock"
 ENV_PYTHON = f"{NAME.upper()}_PYTHON"
 
 
@@ -141,8 +148,7 @@ def build_one(ledger: Ledger, art: Artifact, staging: Path, commit_label: str) -
     bold_by = "column"
 
     if art.kind == "figure":
-        if out.exists():
-            out.unlink()
+        out.unlink(missing_ok=True)
         if art.source:
             src = ledger.code / art.source
             if not src.is_file():
@@ -178,15 +184,26 @@ def build_one(ledger: Ledger, art: Artifact, staging: Path, commit_label: str) -
     return Built(art, out, digest, inputs, ledger.script_hash(art), ledger.config_hash(art), bold, bold_by)
 
 
+@contextmanager
+def _exclusive(path: Path):
+    """Hold an exclusive lock on `path`; a second taura (tuhi's report and a terminal, say) waits its turn."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a") as f:
+        if fcntl:
+            fcntl.flock(f, fcntl.LOCK_EX)
+        yield  # closing the file releases the lock
+
+
 def build(ledger: Ledger, names: list[str] | None = None) -> list[Built]:
     staging = ledger.code / STAGING
     _, label = code_commit(ledger.code)
-    built = [build_one(ledger, a, staging, label) for a in ledger.select(names)]
-    if not names:  # a full build drops staged files of removed artifacts
-        keep = {b.path for b in built}
-        for f in staging.rglob("*") if staging.is_dir() else []:
-            if f.is_file() and f not in keep:
-                f.unlink()
+    with _exclusive(ledger.code / BUILD_LOCK):  # every build shares one staging folder
+        built = [build_one(ledger, a, staging, label) for a in ledger.select(names)]
+        if not names:  # a full build drops staged files of removed artifacts
+            keep = {b.path for b in built}
+            for f in staging.rglob("*") if staging.is_dir() else []:
+                if f.is_file() and f not in keep:
+                    f.unlink()
     return built
 
 
